@@ -1,0 +1,39 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    @apply bg-gray-950 text-gray-100;
+  }
+
+  * {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  ::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-gray-900;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-gray-700 rounded-full;
+  }
+}
+
+@layer components {
+  .tag-blue     { @apply bg-blue-500/20 text-blue-300 border border-blue-500/30; }
+  .tag-purple   { @apply bg-purple-500/20 text-purple-300 border border-purple-500/30; }
+  .tag-green    { @apply bg-green-500/20 text-green-300 border border-green-500/30; }
+  .tag-yellow   { @apply bg-yellow-500/20 text-yellow-300 border border-yellow-500/30; }
+  .tag-pink     { @apply bg-pink-500/20 text-pink-300 border border-pink-500/30; }
+  .tag-red      { @apply bg-red-500/20 text-red-300 border border-red-500/30; }
+  .tag-orange   { @apply bg-orange-500/20 text-orange-300 border border-orange-500/30; }
+  .tag-teal     { @apply bg-teal-500/20 text-teal-300 border border-teal-500/30; }
+  .tag-indigo   { @apply bg-indigo-500/20 text-indigo-300 border border-indigo-500/30; }
+  .tag-gray     { @apply bg-gray-500/20 text-gray-300 border border-gray-500/30; }
+}

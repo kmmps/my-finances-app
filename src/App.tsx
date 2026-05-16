@@ -1,0 +1,163 @@
+import { useState, useMemo } from 'react';
+import { useFinances } from './hooks/useFinances';
+import Header from './components/Header';
+import MonthPicker from './components/MonthPicker';
+import Summary from './components/Summary';
+import IncomeSection from './components/IncomeSection';
+import FilterBar from './components/FilterBar';
+import BillList from './components/BillList';
+import CategoryBreakdown from './components/CategoryBreakdown';
+import BillModal from './components/modals/BillModal';
+import IncomeModal from './components/modals/IncomeModal';
+import TagManager from './components/modals/TagManager';
+import AttachmentModal from './components/modals/AttachmentModal';
+import type { AttachTab, Bill, FilterType, ModalType } from './types';
+
+export default function App() {
+  const {
+    state,
+    currentMonth,
+    monthData,
+    navigate,
+    navigateTo,
+    togglePaid,
+    reorderBills,
+    saveBill,
+    deleteBill,
+    saveIncome,
+    deleteIncome,
+    saveTag,
+    deleteTag,
+  } = useFinances();
+
+  const [filter, setFilter]       = useState<FilterType>('all');
+  const [modal, setModal]         = useState<ModalType>({ kind: 'none' });
+  const [showPicker, setShowPicker] = useState(false);
+
+  const { bills, incomes } = monthData;
+
+  const counts: Record<FilterType, number> = {
+    all:          bills.length,
+    pending:      bills.filter(b => !b.isPaid).length,
+    paid:         bills.filter(b => b.isPaid).length,
+    'auto-debit': bills.filter(b => b.isAutoDebit).length,
+  };
+
+  // Count how many bills (across ALL months) use each tag
+  const tagUsageCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const md of Object.values(state.months)) {
+      for (const bill of md.bills) {
+        for (const tagId of bill.tagIds) {
+          counts[tagId] = (counts[tagId] ?? 0) + 1;
+        }
+      }
+    }
+    return counts;
+  }, [state.months]);
+
+  const monthsWithData = useMemo(
+    () => new Set(Object.keys(state.months)),
+    [state.months],
+  );
+
+  const handleOpenAttach = (bill: Bill, tab: AttachTab) => {
+    setModal({ kind: 'attachments', bill, tab });
+  };
+
+  const handleAttachmentUpdate = (bill: Bill) => {
+    saveBill(bill);
+    // Keep modal open with updated bill reference
+    setModal(prev => prev.kind === 'attachments' ? { ...prev, bill } : prev);
+  };
+
+  return (
+    <div className="min-h-screen bg-gray-950">
+      <Header
+        currentMonth={currentMonth}
+        onNavigate={navigate}
+        onOpenTags={() => setModal({ kind: 'tags' })}
+        onOpenPicker={() => setShowPicker(true)}
+      />
+
+      {showPicker && (
+        <MonthPicker
+          currentMonth={currentMonth}
+          monthsWithData={monthsWithData}
+          onSelect={navigateTo}
+          onClose={() => setShowPicker(false)}
+        />
+      )}
+
+      <main className="max-w-2xl mx-auto px-4 py-4 space-y-4 pb-24">
+        <Summary
+          bills={bills}
+          incomes={incomes}
+          onAddIncome={() => setModal({ kind: 'income', income: null })}
+        />
+
+        <IncomeSection
+          incomes={incomes}
+          onAdd={() => setModal({ kind: 'income', income: null })}
+          onEdit={income => setModal({ kind: 'income', income })}
+          onDelete={deleteIncome}
+        />
+
+        <FilterBar active={filter} onChange={setFilter} counts={counts} />
+
+        <BillList
+          bills={bills}
+          tags={state.tags}
+          filter={filter}
+          onTogglePaid={togglePaid}
+          onReorder={reorderBills}
+          onEdit={bill => setModal({ kind: 'bill', bill })}
+          onOpenAttach={handleOpenAttach}
+          onAdd={() => setModal({ kind: 'bill', bill: null })}
+        />
+
+        <CategoryBreakdown bills={bills} tags={state.tags} />
+      </main>
+
+      {/* ── Modals ───────────────────────────────────────────── */}
+
+      {modal.kind === 'bill' && (
+        <BillModal
+          bill={modal.bill}
+          tags={state.tags}
+          onSave={saveBill}
+          onDelete={deleteBill}
+          onClose={() => setModal({ kind: 'none' })}
+        />
+      )}
+
+      {modal.kind === 'income' && (
+        <IncomeModal
+          income={modal.income}
+          onSave={saveIncome}
+          onDelete={deleteIncome}
+          onClose={() => setModal({ kind: 'none' })}
+        />
+      )}
+
+      {modal.kind === 'tags' && (
+        <TagManager
+          tags={state.tags}
+          tagUsageCounts={tagUsageCounts}
+          onSave={saveTag}
+          onDelete={deleteTag}
+          onClose={() => setModal({ kind: 'none' })}
+        />
+      )}
+
+      {modal.kind === 'attachments' && (
+        <AttachmentModal
+          bill={modal.bill}
+          initialTab={modal.tab}
+          onUpdate={handleAttachmentUpdate}
+          onClose={() => setModal({ kind: 'none' })}
+        />
+      )}
+    </div>
+  );
+}
