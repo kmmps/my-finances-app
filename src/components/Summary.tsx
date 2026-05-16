@@ -34,20 +34,20 @@ export default function Summary({ bills, incomes, onAddIncome, onEditIncome, onD
         Desktop: 3-col grid  → Receita, Gastos, Saldo lado a lado (igual ao pedido)
         items-start: evita que Gastos/Saldo se estiquem quando Receita expande
       */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 items-start">
+      <div className="grid grid-cols-2 gap-2 items-start">
 
         {/* ── RECEITA (collapsible) ──────────────────────────────────── */}
-        <div className="col-span-2 sm:col-span-1 bg-gray-900 rounded-xl border border-gray-800 overflow-hidden">
+        <div className="col-span-2 bg-gray-900 rounded-xl border border-gray-800 overflow-hidden">
           {/* Header — sempre visível */}
           <button
             onClick={() => setOpen(v => !v)}
-            className="w-full flex items-center justify-between px-3 py-2.5 hover:bg-gray-800/30 transition-colors"
+            className="w-full flex items-center justify-between p-3 hover:bg-gray-800/30 transition-colors"
           >
-            <div className="flex items-center gap-1.5">
-              <TrendingUp size={13} className="text-emerald-400" />
+            <div className="flex items-center gap-1.5 flex-1 min-w-0">
+              <TrendingUp size={13} className="text-emerald-400 shrink-0" />
               <span className="text-[11px] text-gray-400 font-medium uppercase tracking-wide">Receita</span>
             </div>
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-1.5 shrink-0">
               <span className="text-sm font-bold text-emerald-400 tabular-nums">
                 {formatCurrency(totalIncome)}
               </span>
