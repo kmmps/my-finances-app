@@ -13,42 +13,55 @@ interface Props {
 export default function IncomeSection({ incomes, onAdd, onEdit, onDelete }: Props) {
   const [expanded, setExpanded] = useState(false);
   const total = incomes.reduce((s, i) => s + i.amount, 0);
-  const base = incomes.filter(i => i.type === 'base').reduce((s, i) => s + i.amount, 0);
-  const extra = incomes.reduce((s, i) => s + i.amount, 0) - base;
+  const base  = incomes.filter(i => i.type === 'base').reduce((s, i) => s + i.amount, 0);
+  const extra = total - base;
 
   return (
     <div className="bg-gray-900 rounded-xl border border-gray-800 overflow-hidden">
+      {/* ── Header row ── */}
       <button
         onClick={() => setExpanded(v => !v)}
-        className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-800/40 transition-colors"
+        className="w-full flex items-center justify-between px-4 py-2 hover:bg-gray-800/40 transition-colors"
       >
-        <div className="flex items-center gap-3">
-          <span className="text-sm font-semibold text-gray-200">Renda</span>
-          <div className="flex gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="text-sm font-semibold text-gray-200 shrink-0">Renda</span>
+
+          {/* Pills: só valores, sem rótulo "Base"/"Extra" */}
+          <div className="flex items-center gap-1.5 min-w-0">
             {base > 0 && (
-              <span className="text-[10px] bg-emerald-500/15 text-emerald-400 border border-emerald-500/25 rounded-full px-2 py-0.5 font-medium">
-                Base {formatCurrency(base)}
+              <span className="text-[10px] bg-emerald-500/15 text-emerald-400 border border-emerald-500/25 rounded-full px-2 py-0.5 font-medium tabular-nums whitespace-nowrap">
+                {formatCurrency(base)}
               </span>
             )}
             {extra > 0 && (
-              <span className="text-[10px] bg-blue-500/15 text-blue-400 border border-blue-500/25 rounded-full px-2 py-0.5 font-medium">
-                Extra {formatCurrency(extra)}
-              </span>
+              <>
+                <span className="text-[10px] text-gray-600">+</span>
+                <span className="text-[10px] bg-blue-500/15 text-blue-400 border border-blue-500/25 rounded-full px-2 py-0.5 font-medium tabular-nums whitespace-nowrap">
+                  {formatCurrency(extra)}
+                </span>
+              </>
             )}
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-bold text-emerald-400">{formatCurrency(total)}</span>
-          {expanded ? <ChevronUp size={16} className="text-gray-500" /> : <ChevronDown size={16} className="text-gray-500" />}
+
+        <div className="flex items-center gap-2 shrink-0 ml-2">
+          <span className="text-sm font-bold text-emerald-400 tabular-nums">{formatCurrency(total)}</span>
+          {expanded
+            ? <ChevronUp  size={15} className="text-gray-500" />
+            : <ChevronDown size={15} className="text-gray-500" />}
         </div>
       </button>
 
+      {/* ── Expanded list ── */}
       {expanded && (
         <div className="border-t border-gray-800">
           {incomes.map(income => (
-            <div key={income.id} className="flex items-center justify-between px-4 py-2.5 hover:bg-gray-800/30 transition-colors group">
+            <div
+              key={income.id}
+              className="flex items-center justify-between px-4 py-2.5 hover:bg-gray-800/30 transition-colors group"
+            >
               <div className="flex items-center gap-2.5">
-                <div className={`w-1.5 h-1.5 rounded-full ${income.type === 'base' ? 'bg-emerald-400' : 'bg-blue-400'}`} />
+                <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${income.type === 'base' ? 'bg-emerald-400' : 'bg-blue-400'}`} />
                 <span className="text-sm text-gray-200">{income.name}</span>
                 <span className={`text-[10px] rounded-full px-1.5 py-0.5 ${
                   income.type === 'base'
@@ -59,7 +72,9 @@ export default function IncomeSection({ incomes, onAdd, onEdit, onDelete }: Prop
                 </span>
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-sm font-semibold text-gray-100">{formatCurrency(income.amount)}</span>
+                <span className="text-sm font-semibold text-gray-100 tabular-nums">
+                  {formatCurrency(income.amount)}
+                </span>
                 <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                   <button
                     onClick={() => onEdit(income)}
