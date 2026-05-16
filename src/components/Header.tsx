@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, Tag, CalendarDays } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Tag, CalendarDays, Settings } from 'lucide-react';
 import { formatMonthLabel } from '../utils';
 
 interface Props {
@@ -6,9 +6,10 @@ interface Props {
   onNavigate: (delta: number) => void;
   onOpenTags: () => void;
   onOpenPicker: () => void;
+  onOpenSettings: () => void;
 }
 
-export default function Header({ currentMonth, onNavigate, onOpenTags, onOpenPicker }: Props) {
+export default function Header({ currentMonth, onNavigate, onOpenTags, onOpenPicker, onOpenSettings }: Props) {
   return (
     <header className="sticky top-0 z-30 bg-gray-950/95 backdrop-blur border-b border-gray-800/60">
       <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
@@ -49,13 +50,22 @@ export default function Header({ currentMonth, onNavigate, onOpenTags, onOpenPic
         </div>
 
         {/* Actions */}
-        <button
-          onClick={onOpenTags}
-          className="p-2 rounded-lg text-gray-400 hover:text-gray-100 hover:bg-gray-800 transition-colors shrink-0"
-          title="Gerenciar categorias"
-        >
-          <Tag size={17} />
-        </button>
+        <div className="flex items-center gap-0.5 shrink-0">
+          <button
+            onClick={onOpenTags}
+            className="p-2 rounded-lg text-gray-400 hover:text-gray-100 hover:bg-gray-800 transition-colors"
+            title="Gerenciar categorias"
+          >
+            <Tag size={17} />
+          </button>
+          <button
+            onClick={onOpenSettings}
+            className="p-2 rounded-lg text-gray-400 hover:text-gray-100 hover:bg-gray-800 transition-colors"
+            title="Configurações"
+          >
+            <Settings size={17} />
+          </button>
+        </div>
       </div>
     </header>
   );

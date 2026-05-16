@@ -1,7 +1,9 @@
 import { useState, useMemo } from 'react';
 import { useFinances } from './hooks/useFinances';
+import { useAuth } from './hooks/useAuth';
 import Header from './components/Header';
 import MonthPicker from './components/MonthPicker';
+import LoginScreen from './components/LoginScreen';
 import Summary from './components/Summary';
 import IncomeSection from './components/IncomeSection';
 import FilterBar from './components/FilterBar';
@@ -10,29 +12,27 @@ import CategoryBreakdown from './components/CategoryBreakdown';
 import BillModal from './components/modals/BillModal';
 import IncomeModal from './components/modals/IncomeModal';
 import TagManager from './components/modals/TagManager';
+import SettingsModal from './components/modals/SettingsModal';
 import AttachmentModal from './components/modals/AttachmentModal';
 import type { AttachTab, Bill, FilterType, ModalType } from './types';
 
 export default function App() {
+  // ── Auth ────────────────────────────────────────────────────────────────────
+  const { authState, error, lockoutRemaining, setupPassword, login, changePassword, logout } = useAuth();
+
+  // ── Finances ─────────────────────────────────────────────────────────────────
   const {
-    state,
-    currentMonth,
-    monthData,
-    navigate,
-    navigateTo,
-    togglePaid,
-    reorderBills,
-    saveBill,
-    deleteBill,
-    saveIncome,
-    deleteIncome,
-    saveTag,
-    deleteTag,
+    state, currentMonth, monthData,
+    navigate, navigateTo,
+    togglePaid, reorderBills,
+    saveBill, deleteBill,
+    saveIncome, deleteIncome,
+    saveTag, deleteTag,
   } = useFinances();
 
-  const [filter, setFilter]       = useState<FilterType>('all');
-  const [modal, setModal]         = useState<ModalType>({ kind: 'none' });
-  const [showPicker, setShowPicker] = useState(false);
+  const [filter,      setFilter]      = useState<FilterType>('all');
+  const [modal,       setModal]       = useState<ModalType>({ kind: 'none' });
+  const [showPicker,  setShowPicker]  = useState(false);
 
   const { bills, incomes } = monthData;
 
@@ -43,34 +43,40 @@ export default function App() {
     'auto-debit': bills.filter(b => b.isAutoDebit).length,
   };
 
-  // Count how many bills (across ALL months) use each tag
   const tagUsageCounts = useMemo(() => {
-    const counts: Record<string, number> = {};
-    for (const md of Object.values(state.months)) {
-      for (const bill of md.bills) {
-        for (const tagId of bill.tagIds) {
-          counts[tagId] = (counts[tagId] ?? 0) + 1;
-        }
-      }
-    }
-    return counts;
+    const c: Record<string, number> = {};
+    for (const md of Object.values(state.months))
+      for (const bill of md.bills)
+        for (const tid of bill.tagIds)
+          c[tid] = (c[tid] ?? 0) + 1;
+    return c;
   }, [state.months]);
 
-  const monthsWithData = useMemo(
-    () => new Set(Object.keys(state.months)),
-    [state.months],
-  );
+  const monthsWithData = useMemo(() => new Set(Object.keys(state.months)), [state.months]);
 
-  const handleOpenAttach = (bill: Bill, tab: AttachTab) => {
-    setModal({ kind: 'attachments', bill, tab });
-  };
+  const handleOpenAttach = (bill: Bill, tab: AttachTab) => setModal({ kind: 'attachments', bill, tab });
 
   const handleAttachmentUpdate = (bill: Bill) => {
     saveBill(bill);
-    // Keep modal open with updated bill reference
     setModal(prev => prev.kind === 'attachments' ? { ...prev, bill } : prev);
   };
 
+  // ── Auth gate ─────────────────────────────────────────────────────────────────
+  if (authState === 'loading') return null;
+
+  if (authState !== 'authenticated') {
+    return (
+      <LoginScreen
+        mode={authState}
+        error={error}
+        lockoutRemaining={lockoutRemaining}
+        onSetup={setupPassword}
+        onLogin={login}
+      />
+    );
+  }
+
+  // ── App ───────────────────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-gray-950">
       <Header
@@ -78,6 +84,7 @@ export default function App() {
         onNavigate={navigate}
         onOpenTags={() => setModal({ kind: 'tags' })}
         onOpenPicker={() => setShowPicker(true)}
+        onOpenSettings={() => setModal({ kind: 'settings' })}
       />
 
       {showPicker && (
@@ -119,7 +126,7 @@ export default function App() {
         <CategoryBreakdown bills={bills} tags={state.tags} />
       </main>
 
-      {/* ── Modals ───────────────────────────────────────────── */}
+      {/* ── Modals ─────────────────────────────────────────────────────────── */}
 
       {modal.kind === 'bill' && (
         <BillModal
@@ -146,6 +153,14 @@ export default function App() {
           tagUsageCounts={tagUsageCounts}
           onSave={saveTag}
           onDelete={deleteTag}
+          onClose={() => setModal({ kind: 'none' })}
+        />
+      )}
+
+      {modal.kind === 'settings' && (
+        <SettingsModal
+          onChangePassword={changePassword}
+          onLogout={logout}
           onClose={() => setModal({ kind: 'none' })}
         />
       )}

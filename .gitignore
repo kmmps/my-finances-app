@@ -21,3 +21,4 @@ node_modules/.tmp/
 .env
 .env.local
 .env.*.local
+.vercel

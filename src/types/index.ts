@@ -61,4 +61,5 @@ export type ModalType =
   | { kind: 'bill'; bill: Bill | null }
   | { kind: 'income'; income: Income | null }
   | { kind: 'tags' }
+  | { kind: 'settings' }
   | { kind: 'attachments'; bill: Bill; tab: AttachTab };

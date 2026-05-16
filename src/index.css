@@ -25,6 +25,16 @@
   }
 }
 
+@layer utilities {
+  .animate-fade-in {
+    animation: fade-in 0.25s ease-out both;
+  }
+  @keyframes fade-in {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0);   }
+  }
+}
+
 @layer components {
   .tag-blue     { @apply bg-blue-500/20 text-blue-300 border border-blue-500/30; }
   .tag-purple   { @apply bg-purple-500/20 text-purple-300 border border-purple-500/30; }
