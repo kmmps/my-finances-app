@@ -5,7 +5,6 @@ import Header from './components/Header';
 import MonthPicker from './components/MonthPicker';
 import LoginScreen from './components/LoginScreen';
 import Summary from './components/Summary';
-import IncomeSection from './components/IncomeSection';
 import FilterBar from './components/FilterBar';
 import BillList from './components/BillList';
 import CategoryBreakdown from './components/CategoryBreakdown';
@@ -101,13 +100,8 @@ export default function App() {
           bills={bills}
           incomes={incomes}
           onAddIncome={() => setModal({ kind: 'income', income: null })}
-        />
-
-        <IncomeSection
-          incomes={incomes}
-          onAdd={() => setModal({ kind: 'income', income: null })}
-          onEdit={income => setModal({ kind: 'income', income })}
-          onDelete={deleteIncome}
+          onEditIncome={income => setModal({ kind: 'income', income })}
+          onDeleteIncome={deleteIncome}
         />
 
         <FilterBar active={filter} onChange={setFilter} counts={counts} />
