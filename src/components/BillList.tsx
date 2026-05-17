@@ -78,7 +78,6 @@ export default function BillList({ bills, tags, filter, onTogglePaid, onEdit, on
                   bill={bill}
                   tags={tags}
                   onTogglePaid={onTogglePaid}
-                  onEdit={onEdit}
                   onOpenAttach={onOpenAttach}
                 />
               </SwipeableRow>
