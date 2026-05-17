@@ -1,51 +1,113 @@
 import { useState } from 'react';
-import { Eye, EyeOff, Lock, ShieldCheck, AlertTriangle } from 'lucide-react';
-import type { AuthState } from '../hooks/useAuth';
+import { Eye, EyeOff, AlertTriangle, CheckCircle2, Mail, Lock, UserPlus } from 'lucide-react';
+
+type Mode = 'login' | 'register' | 'forgot' | 'emailSent' | 'recovery';
 
 interface Props {
-  mode: Exclude<AuthState, 'loading' | 'authenticated'>;
+  isRecovery: boolean;
   error: string | null;
-  lockoutRemaining: number;
-  onSetup: (password: string) => Promise<void>;
-  onLogin: (password: string) => Promise<void>;
+  onSignUp:           (email: string, password: string) => Promise<boolean>;
+  onLogin:            (email: string, password: string) => Promise<boolean>;
+  onForgotPassword:   (email: string) => Promise<boolean>;
+  onUpdatePassword:   (newPassword: string) => Promise<boolean>;
 }
 
-export default function LoginScreen({ mode, error, lockoutRemaining, onSetup, onLogin }: Props) {
-  const [password,    setPassword]    = useState('');
-  const [confirm,     setConfirm]     = useState('');
-  const [showPw,      setShowPw]      = useState(false);
-  const [showConfirm, setShowConfirm] = useState(false);
-  const [localError,  setLocalError]  = useState<string | null>(null);
-  const [loading,     setLoading]     = useState(false);
+function EyeToggle({ show, onToggle }: { show: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300 transition-colors p-1"
+    >
+      {show ? <EyeOff size={15} /> : <Eye size={15} />}
+    </button>
+  );
+}
 
-  const isSetup  = mode === 'setup';
-  const isLocked = mode === 'locked';
+function Field({
+  label, value, onChange, type = 'text', placeholder, autoComplete, autoFocus,
+}: {
+  label: string; value: string; onChange: (v: string) => void;
+  type?: string; placeholder?: string; autoComplete?: string; autoFocus?: boolean;
+}) {
+  const [show, setShow] = useState(false);
+  const isPw = type === 'password';
+  return (
+    <div>
+      <label className="block text-xs font-medium text-gray-400 mb-1.5">{label}</label>
+      <div className="relative">
+        <input
+          type={isPw && show ? 'text' : type}
+          value={value}
+          onChange={e => onChange(e.target.value)}
+          placeholder={placeholder}
+          autoComplete={autoComplete}
+          autoFocus={autoFocus}
+          className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-sm text-gray-100 placeholder-gray-600 focus:outline-none focus:border-emerald-500 transition-colors"
+          style={isPw ? { paddingRight: '2.75rem' } : undefined}
+        />
+        {isPw && <EyeToggle show={show} onToggle={() => setShow(v => !v)} />}
+      </div>
+    </div>
+  );
+}
 
-  const handleSubmit = async (e: React.FormEvent) => {
+export default function LoginScreen({ isRecovery, error: authError, onSignUp, onLogin, onForgotPassword, onUpdatePassword }: Props) {
+  const [mode,     setMode]     = useState<Mode>(isRecovery ? 'recovery' : 'login');
+  const [email,    setEmail]    = useState('');
+  const [password, setPassword] = useState('');
+  const [confirm,  setConfirm]  = useState('');
+  const [error,    setError]    = useState<string | null>(null);
+  const [loading,  setLoading]  = useState(false);
+
+  const displayError = error ?? authError;
+
+  const clearForm = () => { setEmail(''); setPassword(''); setConfirm(''); setError(null); };
+
+  const goTo = (m: Mode) => { clearForm(); setMode(m); };
+
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLocalError(null);
-
-    if (isSetup) {
-      if (password.length < 6) { setLocalError('A senha deve ter pelo menos 6 caracteres.'); return; }
-      if (password !== confirm) { setLocalError('As senhas não conferem.'); return; }
-      setLoading(true);
-      await onSetup(password);
-      setLoading(false);
-    } else {
-      if (!password) return;
-      setLoading(true);
-      await onLogin(password);
-      setLoading(false);
-    }
+    if (!email || !password) return;
+    setError(null); setLoading(true);
+    const ok = await onLogin(email, password);
+    setLoading(false);
+    if (!ok) setError(authError ?? 'Erro ao entrar.');
   };
 
-  const displayError = localError || error;
-  const mm = String(Math.floor(lockoutRemaining / 60)).padStart(2, '0');
-  const ss = String(lockoutRemaining % 60).padStart(2, '0');
+  const handleRegister = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (password.length < 6) { setError('A senha deve ter pelo menos 6 caracteres.'); return; }
+    if (password !== confirm)  { setError('As senhas não conferem.'); return; }
+    setError(null); setLoading(true);
+    const ok = await onSignUp(email, password);
+    setLoading(false);
+    if (ok) setMode('emailSent');
+    else    setError(authError ?? 'Erro ao criar conta.');
+  };
+
+  const handleForgot = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email) return;
+    setError(null); setLoading(true);
+    const ok = await onForgotPassword(email);
+    setLoading(false);
+    if (ok) setMode('emailSent');
+    else    setError('Erro ao enviar email. Tente novamente.');
+  };
+
+  const handleRecovery = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (password.length < 6) { setError('A senha deve ter pelo menos 6 caracteres.'); return; }
+    if (password !== confirm)  { setError('As senhas não conferem.'); return; }
+    setError(null); setLoading(true);
+    const ok = await onUpdatePassword(password);
+    setLoading(false);
+    if (!ok) setError('Erro ao salvar nova senha. Tente novamente.');
+  };
 
   return (
     <div className="min-h-screen bg-gray-950 flex items-center justify-center px-4">
-      {/* Background glow */}
       <div className="fixed inset-0 flex items-center justify-center pointer-events-none">
         <div className="w-[480px] h-[480px] rounded-full bg-emerald-500/6 blur-3xl" />
       </div>
@@ -60,122 +122,172 @@ export default function LoginScreen({ mode, error, lockoutRemaining, onSetup, on
           <p className="text-gray-500 text-sm mt-1">Controle financeiro pessoal</p>
         </div>
 
-        {/* Card */}
         <div className="bg-gray-900 border border-gray-800 rounded-2xl shadow-2xl overflow-hidden">
-          {isLocked ? (
-            /* ── Locked state ── */
-            <div className="p-6 text-center space-y-4">
-              <div className="inline-flex items-center justify-center w-12 h-12 bg-red-500/10 border border-red-500/20 rounded-xl">
-                <Lock size={22} className="text-red-400" />
-              </div>
-              <div>
-                <h2 className="text-base font-semibold text-gray-100">Acesso bloqueado</h2>
-                <p className="text-xs text-gray-500 mt-1">Muitas tentativas incorretas</p>
-              </div>
-              <div className="bg-gray-800 border border-gray-700 rounded-xl px-5 py-3 inline-flex items-center gap-3">
-                <div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
-                <span className="text-2xl font-mono font-bold text-amber-400 tabular-nums">
-                  {mm}:{ss}
-                </span>
-              </div>
-              <p className="text-xs text-gray-600">Aguarde para tentar novamente</p>
-            </div>
-          ) : (
-            /* ── Login / Setup form ── */
-            <form onSubmit={handleSubmit} className="p-6 space-y-4">
-              {/* Icon + heading */}
+
+          {/* ── LOGIN ─────────────────────────────────────────────────── */}
+          {mode === 'login' && (
+            <form onSubmit={handleLogin} className="p-6 space-y-4">
               <div className="text-center mb-2">
                 <div className="inline-flex items-center justify-center w-10 h-10 bg-gray-800 rounded-xl mb-3">
-                  {isSetup
-                    ? <ShieldCheck size={20} className="text-emerald-400" />
-                    : <Lock        size={20} className="text-gray-400" />}
+                  <Lock size={20} className="text-gray-400" />
                 </div>
-                <h2 className="text-base font-semibold text-gray-100">
-                  {isSetup ? 'Crie sua senha' : 'Bem-vinda de volta!'}
-                </h2>
-                <p className="text-xs text-gray-500 mt-1">
-                  {isSetup
-                    ? 'Proteja o app com uma senha pessoal'
-                    : 'Digite sua senha para continuar'}
+                <h2 className="text-base font-semibold text-gray-100">Bem-vinda de volta!</h2>
+                <p className="text-xs text-gray-500 mt-1">Entre com seu email e senha</p>
+              </div>
+
+              <Field label="Email" value={email} onChange={e => { setEmail(e); setError(null); }}
+                type="email" placeholder="seu@email.com" autoComplete="email" autoFocus />
+              <Field label="Senha" value={password} onChange={e => { setPassword(e); setError(null); }}
+                type="password" placeholder="••••••••" autoComplete="current-password" />
+
+              {displayError && <ErrorBox message={displayError} />}
+
+              <button type="submit" disabled={loading || !email || !password}
+                className="w-full py-3 rounded-xl bg-emerald-500 text-white text-sm font-semibold hover:bg-emerald-400 active:bg-emerald-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20">
+                {loading ? <Spinner text="Entrando..." /> : 'Entrar'}
+              </button>
+
+              <div className="flex flex-col items-center gap-2 pt-1">
+                <button type="button" onClick={() => goTo('forgot')}
+                  className="text-xs text-gray-500 hover:text-gray-300 transition-colors">
+                  Esqueceu a senha?
+                </button>
+                <button type="button" onClick={() => goTo('register')}
+                  className="text-xs text-emerald-500 hover:text-emerald-400 transition-colors font-medium">
+                  Criar conta
+                </button>
+              </div>
+            </form>
+          )}
+
+          {/* ── REGISTER ──────────────────────────────────────────────── */}
+          {mode === 'register' && (
+            <form onSubmit={handleRegister} className="p-6 space-y-4">
+              <div className="text-center mb-2">
+                <div className="inline-flex items-center justify-center w-10 h-10 bg-gray-800 rounded-xl mb-3">
+                  <UserPlus size={20} className="text-emerald-400" />
+                </div>
+                <h2 className="text-base font-semibold text-gray-100">Criar conta</h2>
+                <p className="text-xs text-gray-500 mt-1">Seus dados ficam salvos na nuvem</p>
+              </div>
+
+              <Field label="Email" value={email} onChange={e => { setEmail(e); setError(null); }}
+                type="email" placeholder="seu@email.com" autoComplete="email" autoFocus />
+              <Field label="Senha" value={password} onChange={e => { setPassword(e); setError(null); }}
+                type="password" placeholder="Mínimo 6 caracteres" autoComplete="new-password" />
+              <Field label="Confirmar senha" value={confirm} onChange={e => { setConfirm(e); setError(null); }}
+                type="password" placeholder="Repita a senha" autoComplete="new-password" />
+
+              {displayError && <ErrorBox message={displayError} />}
+
+              <button type="submit" disabled={loading || !email || !password || !confirm}
+                className="w-full py-3 rounded-xl bg-emerald-500 text-white text-sm font-semibold hover:bg-emerald-400 active:bg-emerald-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20">
+                {loading ? <Spinner text="Criando conta..." /> : 'Criar conta'}
+              </button>
+
+              <button type="button" onClick={() => goTo('login')}
+                className="w-full text-center text-xs text-gray-500 hover:text-gray-300 transition-colors">
+                Já tenho conta — entrar
+              </button>
+            </form>
+          )}
+
+          {/* ── FORGOT PASSWORD ────────────────────────────────────────── */}
+          {mode === 'forgot' && (
+            <form onSubmit={handleForgot} className="p-6 space-y-4">
+              <div className="text-center mb-2">
+                <div className="inline-flex items-center justify-center w-10 h-10 bg-gray-800 rounded-xl mb-3">
+                  <Mail size={20} className="text-blue-400" />
+                </div>
+                <h2 className="text-base font-semibold text-gray-100">Recuperar senha</h2>
+                <p className="text-xs text-gray-500 mt-1">Enviaremos um link para seu email</p>
+              </div>
+
+              <Field label="Email" value={email} onChange={e => { setEmail(e); setError(null); }}
+                type="email" placeholder="seu@email.com" autoComplete="email" autoFocus />
+
+              {displayError && <ErrorBox message={displayError} />}
+
+              <button type="submit" disabled={loading || !email}
+                className="w-full py-3 rounded-xl bg-blue-500 text-white text-sm font-semibold hover:bg-blue-400 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2">
+                {loading ? <Spinner text="Enviando..." /> : 'Enviar link de recuperação'}
+              </button>
+
+              <button type="button" onClick={() => goTo('login')}
+                className="w-full text-center text-xs text-gray-500 hover:text-gray-300 transition-colors">
+                ← Voltar para o login
+              </button>
+            </form>
+          )}
+
+          {/* ── EMAIL SENT ────────────────────────────────────────────── */}
+          {mode === 'emailSent' && (
+            <div className="p-6 text-center space-y-4">
+              <div className="inline-flex items-center justify-center w-12 h-12 bg-emerald-500/10 border border-emerald-500/20 rounded-xl">
+                <CheckCircle2 size={22} className="text-emerald-400" />
+              </div>
+              <div>
+                <h2 className="text-base font-semibold text-gray-100">Email enviado!</h2>
+                <p className="text-xs text-gray-500 mt-2 leading-relaxed">
+                  Verifique sua caixa de entrada e clique no link para continuar.
+                  Pode cair no spam.
                 </p>
               </div>
+              <button onClick={() => goTo('login')}
+                className="text-xs text-emerald-500 hover:text-emerald-400 transition-colors font-medium">
+                ← Voltar para o login
+              </button>
+            </div>
+          )}
 
-              {/* Password */}
-              <div>
-                <label className="block text-xs font-medium text-gray-400 mb-1.5">Senha</label>
-                <div className="relative">
-                  <input
-                    type={showPw ? 'text' : 'password'}
-                    value={password}
-                    onChange={e => { setPassword(e.target.value); setLocalError(null); }}
-                    placeholder={isSetup ? 'Mínimo 6 caracteres' : '••••••••'}
-                    autoComplete={isSetup ? 'new-password' : 'current-password'}
-                    autoFocus
-                    className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 pr-11 text-sm text-gray-100 placeholder-gray-600 focus:outline-none focus:border-emerald-500 transition-colors"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPw(v => !v)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300 transition-colors p-1"
-                  >
-                    {showPw ? <EyeOff size={15} /> : <Eye size={15} />}
-                  </button>
+          {/* ── RECOVERY (new password after reset link) ───────────────── */}
+          {mode === 'recovery' && (
+            <form onSubmit={handleRecovery} className="p-6 space-y-4">
+              <div className="text-center mb-2">
+                <div className="inline-flex items-center justify-center w-10 h-10 bg-gray-800 rounded-xl mb-3">
+                  <Lock size={20} className="text-emerald-400" />
                 </div>
+                <h2 className="text-base font-semibold text-gray-100">Nova senha</h2>
+                <p className="text-xs text-gray-500 mt-1">Digite a nova senha para sua conta</p>
               </div>
 
-              {/* Confirm (setup only) */}
-              {isSetup && (
-                <div>
-                  <label className="block text-xs font-medium text-gray-400 mb-1.5">Confirmar senha</label>
-                  <div className="relative">
-                    <input
-                      type={showConfirm ? 'text' : 'password'}
-                      value={confirm}
-                      onChange={e => { setConfirm(e.target.value); setLocalError(null); }}
-                      placeholder="Repita a senha"
-                      autoComplete="new-password"
-                      className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 pr-11 text-sm text-gray-100 placeholder-gray-600 focus:outline-none focus:border-emerald-500 transition-colors"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowConfirm(v => !v)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300 transition-colors p-1"
-                    >
-                      {showConfirm ? <EyeOff size={15} /> : <Eye size={15} />}
-                    </button>
-                  </div>
-                </div>
-              )}
+              <Field label="Nova senha" value={password} onChange={e => { setPassword(e); setError(null); }}
+                type="password" placeholder="Mínimo 6 caracteres" autoComplete="new-password" autoFocus />
+              <Field label="Confirmar nova senha" value={confirm} onChange={e => { setConfirm(e); setError(null); }}
+                type="password" placeholder="Repita a senha" autoComplete="new-password" />
 
-              {/* Error */}
-              {displayError && (
-                <div className="flex items-start gap-2 bg-red-500/10 border border-red-500/20 rounded-xl px-3 py-2.5">
-                  <AlertTriangle size={14} className="text-red-400 shrink-0 mt-0.5" />
-                  <p className="text-xs text-red-400 leading-relaxed">{displayError}</p>
-                </div>
-              )}
+              {displayError && <ErrorBox message={displayError} />}
 
-              {/* Submit */}
-              <button
-                type="submit"
-                disabled={loading || !password || (isSetup && !confirm)}
-                className="w-full py-3 rounded-xl bg-emerald-500 text-white text-sm font-semibold hover:bg-emerald-400 active:bg-emerald-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20"
-              >
-                {loading ? (
-                  <>
-                    <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                    {isSetup ? 'Criando...' : 'Verificando...'}
-                  </>
-                ) : isSetup ? 'Criar senha e entrar' : 'Entrar'}
+              <button type="submit" disabled={loading || !password || !confirm}
+                className="w-full py-3 rounded-xl bg-emerald-500 text-white text-sm font-semibold hover:bg-emerald-400 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2">
+                {loading ? <Spinner text="Salvando..." /> : 'Salvar nova senha'}
               </button>
             </form>
           )}
         </div>
 
         <p className="text-center text-xs text-gray-700 mt-5">
-          🔒 Dados armazenados apenas neste dispositivo
+          🔒 Dados sincronizados com segurança na nuvem
         </p>
       </div>
     </div>
+  );
+}
+
+function ErrorBox({ message }: { message: string }) {
+  return (
+    <div className="flex items-start gap-2 bg-red-500/10 border border-red-500/20 rounded-xl px-3 py-2.5">
+      <AlertTriangle size={14} className="text-red-400 shrink-0 mt-0.5" />
+      <p className="text-xs text-red-400 leading-relaxed">{message}</p>
+    </div>
+  );
+}
+
+function Spinner({ text }: { text: string }) {
+  return (
+    <>
+      <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+      {text}
+    </>
   );
 }

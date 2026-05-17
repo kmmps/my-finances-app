@@ -1,28 +1,83 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { supabase } from '../lib/supabase';
 import type { AppState, Bill, Income, Tag, MonthData, TagColor } from '../types';
-import { DEFAULT_TAGS, DEFAULT_BILLS, DEFAULT_INCOMES, DEFAULT_TAG_EMOJIS } from '../data/defaults';
+import { DEFAULT_BILLS, DEFAULT_INCOMES, DEFAULT_TAGS } from '../data/defaults';
 import { getCurrentMonthKey, generateId } from '../utils';
 
-const STORAGE_KEY = 'finances-app-v1';
+const STORAGE_KEY    = 'finances-app-v1';
+const MIGRATION_KEY  = 'finances-migrated-supabase-v1';
 
-// ── Migration helpers ─────────────────────────────────────────────────────────
+// ── DB row types ──────────────────────────────────────────────────────────────
+
+interface DbBill {
+  id: string; user_id: string; month_key: string;
+  name: string; amount: number | string; due_day: number;
+  tag_ids: string[]; is_paid: boolean; is_auto_debit: boolean;
+  boleto_pix_code: string; boleto_file: unknown; comprovantes: unknown;
+  note: string; sort_order: number;
+}
+interface DbIncome {
+  id: string; user_id: string; month_key: string;
+  name: string; amount: number | string; type: 'base' | 'extra';
+}
+interface DbTag { id: string; user_id: string; name: string; color: string; emoji: string; }
+
+// ── Mappers ───────────────────────────────────────────────────────────────────
+
+function fromDbBill(r: DbBill): Bill {
+  return {
+    id: r.id, name: r.name, amount: Number(r.amount), dueDay: r.due_day,
+    tagIds: r.tag_ids ?? [], isPaid: r.is_paid, isAutoDebit: r.is_auto_debit,
+    boleto: { pixCode: r.boleto_pix_code ?? '', file: r.boleto_file as Bill['boleto']['file'] },
+    comprovantes: (r.comprovantes ?? []) as Bill['comprovantes'],
+    note: r.note ?? '',
+  };
+}
+
+function toDbBill(b: Bill, monthKey: string, sortOrder: number, userId: string) {
+  return {
+    id: b.id, user_id: userId, month_key: monthKey,
+    name: b.name, amount: b.amount, due_day: b.dueDay,
+    tag_ids: b.tagIds, is_paid: b.isPaid, is_auto_debit: b.isAutoDebit,
+    boleto_pix_code: b.boleto.pixCode, boleto_file: b.boleto.file,
+    comprovantes: b.comprovantes, note: b.note, sort_order: sortOrder,
+  };
+}
+
+function fromDbIncome(r: DbIncome): Income {
+  return { id: r.id, name: r.name, amount: Number(r.amount), type: r.type };
+}
+
+function toDbIncome(i: Income, monthKey: string, userId: string) {
+  return { id: i.id, user_id: userId, month_key: monthKey, name: i.name, amount: i.amount, type: i.type };
+}
+
+function fromDbTag(r: DbTag): Tag {
+  return { id: r.id, name: r.name, color: r.color as TagColor, emoji: r.emoji };
+}
+
+function toDbTag(t: Tag, userId: string) {
+  return { id: t.id, user_id: userId, name: t.name, color: t.color, emoji: t.emoji };
+}
+
+// ── localStorage migration helpers ────────────────────────────────────────────
 
 function migrateBill(raw: Record<string, unknown>): Bill {
   return {
-    id:            String(raw.id ?? generateId()),
-    name:          String(raw.name ?? ''),
-    amount:        Number(raw.amount ?? 0),
-    dueDay:        Number(raw.dueDay ?? 1),
-    tagIds:        Array.isArray(raw.tagIds) ? (raw.tagIds as string[]) : [],
-    isPaid:        Boolean(raw.isPaid),
-    isAutoDebit:   Boolean(raw.isAutoDebit),
-    boleto:        (raw.boleto && typeof raw.boleto === 'object')
-                     ? (raw.boleto as Bill['boleto'])
-                     : { pixCode: '', file: null },
-    comprovantes:  Array.isArray(raw.comprovantes)
-                     ? (raw.comprovantes as Bill['comprovantes'])
-                     : (Array.isArray(raw.attachments) ? (raw.attachments as Bill['comprovantes']) : []),
-    note:          String(raw.note ?? ''),
+    id:           String(raw.id ?? generateId()),
+    name:         String(raw.name ?? ''),
+    amount:       Number(raw.amount ?? 0),
+    dueDay:       Number(raw.dueDay ?? 1),
+    tagIds:       Array.isArray(raw.tagIds) ? (raw.tagIds as string[]) : [],
+    isPaid:       Boolean(raw.isPaid),
+    isAutoDebit:  Boolean(raw.isAutoDebit),
+    boleto:       (raw.boleto && typeof raw.boleto === 'object')
+                    ? (raw.boleto as Bill['boleto'])
+                    : { pixCode: '', file: null },
+    comprovantes: Array.isArray(raw.comprovantes)
+                    ? (raw.comprovantes as Bill['comprovantes'])
+                    : [],
+    note: String(raw.note ?? ''),
   };
 }
 
@@ -31,13 +86,14 @@ function migrateTag(raw: Record<string, unknown>): Tag {
     id:    String(raw.id ?? generateId()),
     name:  String(raw.name ?? ''),
     color: (raw.color as TagColor) ?? 'gray',
-    emoji: String(raw.emoji ?? DEFAULT_TAG_EMOJIS[String(raw.id)] ?? '🏷️'),
+    emoji: String(raw.emoji ?? '🏷️'),
   };
 }
 
-function migrateState(raw: Record<string, unknown>): AppState {
-  const rawTags = Array.isArray(raw.tags) ? raw.tags : [];
-  const rawMonths = (raw.months && typeof raw.months === 'object') ? raw.months as Record<string, unknown> : {};
+function parseLocalState(raw: Record<string, unknown>): AppState {
+  const rawTags   = Array.isArray(raw.tags) ? raw.tags : [];
+  const rawMonths = (raw.months && typeof raw.months === 'object')
+    ? (raw.months as Record<string, unknown>) : {};
 
   const months: AppState['months'] = {};
   for (const [k, v] of Object.entries(rawMonths)) {
@@ -47,224 +103,273 @@ function migrateState(raw: Record<string, unknown>): AppState {
       incomes: Array.isArray(mv.incomes) ? mv.incomes as Income[] : [],
     };
   }
-
-  return {
-    tags:   rawTags.map(t => migrateTag(t as Record<string, unknown>)),
-    months,
-  };
+  return { tags: rawTags.map(t => migrateTag(t as Record<string, unknown>)), months };
 }
 
-// ── Boot ──────────────────────────────────────────────────────────────────────
+// ── Supabase: load all data ────────────────────────────────────────────────────
 
-function freshBills(bills: Bill[]): Bill[] {
-  return bills.map(b => ({
-    ...b,
-    id:           generateId(),
-    isPaid:       false,
-    boleto:       { pixCode: '', file: null },
-    comprovantes: [],
-  }));
-}
-
-function loadInitialState(): AppState {
+async function loadFromSupabase(): Promise<AppState | null> {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return migrateState(JSON.parse(raw) as Record<string, unknown>);
-  } catch { /* ignore corrupt data */ }
+    const [{ data: bills, error: be }, { data: incomes, error: ie }, { data: tags, error: te }] =
+      await Promise.all([
+        supabase.from('bills').select('*').order('sort_order'),
+        supabase.from('incomes').select('*'),
+        supabase.from('tags').select('*'),
+      ]);
+    if (be || ie || te) return null;
 
-  const month = getCurrentMonthKey();
-  return {
-    tags: DEFAULT_TAGS,
-    months: {
-      [month]: {
-        bills:   DEFAULT_BILLS.map(b => ({ ...b })),
-        incomes: DEFAULT_INCOMES.map(i => ({ ...i })),
-      },
-    },
-  };
+    const months: AppState['months'] = {};
+    for (const b of (bills ?? []) as DbBill[]) {
+      if (!months[b.month_key]) months[b.month_key] = { bills: [], incomes: [] };
+      months[b.month_key]!.bills.push(fromDbBill(b));
+    }
+    for (const i of (incomes ?? []) as DbIncome[]) {
+      if (!months[i.month_key]) months[i.month_key] = { bills: [], incomes: [] };
+      months[i.month_key]!.incomes.push(fromDbIncome(i));
+    }
+    return { months, tags: ((tags ?? []) as DbTag[]).map(fromDbTag) };
+  } catch { return null; }
+}
+
+// ── localStorage → Supabase one-time migration ────────────────────────────────
+
+async function runMigration(userId: string): Promise<void> {
+  if (localStorage.getItem(MIGRATION_KEY)) return;
+
+  const raw = localStorage.getItem(STORAGE_KEY);
+  if (!raw) { localStorage.setItem(MIGRATION_KEY, '1'); return; }
+
+  try {
+    const old = parseLocalState(JSON.parse(raw) as Record<string, unknown>);
+    const bills: object[] = [], incomes: object[] = [];
+    for (const [monthKey, md] of Object.entries(old.months)) {
+      md.bills.forEach((b, i)  => bills.push(toDbBill(b, monthKey, i, userId)));
+      md.incomes.forEach(i     => incomes.push(toDbIncome(i, monthKey, userId)));
+    }
+    const tags = old.tags.length ? old.tags : DEFAULT_TAGS;
+    await Promise.all([
+      bills.length   ? supabase.from('bills').upsert(bills)                       : null,
+      incomes.length ? supabase.from('incomes').upsert(incomes)                   : null,
+      tags.length    ? supabase.from('tags').upsert(tags.map(t => toDbTag(t, userId))) : null,
+    ].filter(Boolean));
+    localStorage.setItem(MIGRATION_KEY, '1');
+  } catch (e) { console.error('Migration error:', e); }
 }
 
 // ── Hook ──────────────────────────────────────────────────────────────────────
 
-export function useFinances() {
-  const [state, setState] = useState<AppState>(loadInitialState);
+const EMPTY: AppState = { tags: [], months: {} };
+
+export function useFinances(userId: string | undefined) {
+  const [state,        setState]       = useState<AppState>(EMPTY);
   const [currentMonth, setCurrentMonth] = useState(getCurrentMonthKey);
+  const [isLoading,    setIsLoading]   = useState(true);
+  const initRef = useRef(false);
+
+  // ── Load / reset on auth change ─────────────────────────────────────────
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  }, [state]);
+    if (!userId) {
+      setState(EMPTY);
+      setIsLoading(false);
+      initRef.current = false;
+      return;
+    }
+    if (initRef.current) return;
+    initRef.current = true;
 
-  const ensureMonth = useCallback((month: string) => {
-    setState(prev => {
-      if (prev.months[month]) return prev;
+    (async () => {
+      setIsLoading(true);
 
-      const sortedMonths = Object.keys(prev.months).sort();
-      const lastMonth = sortedMonths[sortedMonths.length - 1];
-      let newData: MonthData;
+      // Show cached data instantly while fetching
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) setState(parseLocalState(JSON.parse(raw) as Record<string, unknown>));
+      } catch { /* ignore */ }
 
-      if (lastMonth && prev.months[lastMonth]) {
-        const last = prev.months[lastMonth]!;
-        newData = {
-          bills:   freshBills(last.bills),
-          incomes: last.incomes.map(i => ({ ...i, id: generateId() })),
-        };
-      } else {
-        newData = {
-          bills:   DEFAULT_BILLS.map(b => ({ ...b })),
-          incomes: DEFAULT_INCOMES.map(i => ({ ...i })),
-        };
+      await runMigration(userId);
+
+      const fresh = await loadFromSupabase();
+      if (fresh) {
+        setState(fresh);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(fresh));
       }
+      setIsLoading(false);
+    })();
+  }, [userId]);
 
-      return { ...prev, months: { ...prev.months, [month]: newData } };
-    });
-  }, []);
-
-  const navigate = useCallback((delta: number) => {
-    setCurrentMonth(prev => {
-      const [y, m] = prev.split('-').map(Number);
-      const d = new Date(y!, m! - 1 + delta, 1);
-      const next = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-      ensureMonth(next);
-      return next;
-    });
-  }, [ensureMonth]);
-
-  const navigateTo = useCallback((month: string) => {
-    ensureMonth(month);
-    setCurrentMonth(month);
-  }, [ensureMonth]);
+  // Sync local cache whenever state changes (after initial load)
+  useEffect(() => {
+    if (!userId || isLoading) return;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  }, [state, userId, isLoading]);
 
   const monthData = state.months[currentMonth] ?? { bills: [], incomes: [] };
 
+  // ── Ensure Month ──────────────────────────────────────────────────────────
+
+  const ensureMonth = useCallback(async (month: string): Promise<void> => {
+    if (state.months[month] || !userId) return;
+
+    const sorted    = Object.keys(state.months).sort();
+    const lastKey   = sorted[sorted.length - 1];
+    const last      = lastKey ? state.months[lastKey] : null;
+
+    const newBills: Bill[] = last
+      ? last.bills.map(b => ({ ...b, id: generateId(), isPaid: false, boleto: { pixCode: '', file: null }, comprovantes: [] }))
+      : DEFAULT_BILLS.map(b => ({ ...b }));
+
+    const newIncomes: Income[] = last
+      ? last.incomes.map(i => ({ ...i, id: generateId() }))
+      : DEFAULT_INCOMES.map(i => ({ ...i }));
+
+    const newData: MonthData = { bills: newBills, incomes: newIncomes };
+
+    // Optimistic local update first
+    setState(prev => ({ ...prev, months: { ...prev.months, [month]: newData } }));
+
+    // Persist in background
+    await Promise.all([
+      newBills.length   ? supabase.from('bills').upsert(newBills.map((b, i) => toDbBill(b, month, i, userId)))     : null,
+      newIncomes.length ? supabase.from('incomes').upsert(newIncomes.map(i => toDbIncome(i, month, userId)))        : null,
+    ].filter(Boolean));
+  }, [state.months, userId]);
+
+  // ── Navigation ────────────────────────────────────────────────────────────
+
+  const navigate = useCallback((delta: number): void => {
+    const [y, m] = currentMonth.split('-').map(Number);
+    const d    = new Date(y!, m! - 1 + delta, 1);
+    const next = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    setCurrentMonth(next);
+    void ensureMonth(next);
+  }, [currentMonth, ensureMonth]);
+
+  const navigateTo = useCallback((month: string): void => {
+    setCurrentMonth(month);
+    void ensureMonth(month);
+  }, [ensureMonth]);
+
   // ── Bills ─────────────────────────────────────────────────────────────────
 
-  const updateBills = useCallback((updater: (bills: Bill[]) => Bill[]) => {
-    setState(prev => ({
-      ...prev,
-      months: {
-        ...prev.months,
-        [currentMonth]: {
-          ...prev.months[currentMonth]!,
-          bills: updater(prev.months[currentMonth]?.bills ?? []),
-        },
-      },
-    }));
-  }, [currentMonth]);
+  const saveBill = useCallback(async (bill: Bill) => {
+    if (!userId) return;
+    const prev  = state.months[currentMonth] ?? { bills: [], incomes: [] };
+    const idx   = prev.bills.findIndex(b => b.id === bill.id);
+    const bills = idx >= 0 ? prev.bills.map(b => b.id === bill.id ? bill : b) : [...prev.bills, bill];
+    setState(s => ({ ...s, months: { ...s.months, [currentMonth]: { ...prev, bills } } }));
+    await supabase.from('bills').upsert(toDbBill(bill, currentMonth, idx < 0 ? prev.bills.length : idx, userId));
+  }, [userId, currentMonth, state.months]);
 
-  const togglePaid = useCallback((id: string) => {
-    updateBills(bills => {
-      const idx = bills.findIndex(b => b.id === id);
-      if (idx === -1) return bills;
-      const updated = { ...bills[idx]!, isPaid: !bills[idx]!.isPaid };
-      if (updated.isPaid) {
-        // Sink paid bill to end of list
-        return [...bills.filter(b => b.id !== id), updated];
-      }
-      return bills.map(b => b.id === id ? updated : b);
+  const deleteBill = useCallback(async (id: string) => {
+    if (!userId) return;
+    setState(s => {
+      const month = s.months[currentMonth];
+      if (!month) return s;
+      return { ...s, months: { ...s.months, [currentMonth]: { ...month, bills: month.bills.filter(b => b.id !== id) } } };
     });
-  }, [updateBills]);
+    await supabase.from('bills').delete().eq('id', id);
+  }, [userId, currentMonth]);
 
-  const reorderBills = useCallback((activeId: string, overId: string) => {
-    updateBills(bills => {
-      const from = bills.findIndex(b => b.id === activeId);
-      const to   = bills.findIndex(b => b.id === overId);
-      if (from === -1 || to === -1 || from === to) return bills;
-      const next = [...bills];
-      const [moved] = next.splice(from, 1);
-      next.splice(to, 0, moved!);
-      return next;
-    });
-  }, [updateBills]);
+  const togglePaid = useCallback(async (id: string) => {
+    if (!userId) return;
+    const month = state.months[currentMonth];
+    if (!month) return;
+    const bill = month.bills.find(b => b.id === id);
+    if (!bill) return;
 
-  const saveBill = useCallback((bill: Bill) => {
-    updateBills(bills => {
-      const idx = bills.findIndex(b => b.id === bill.id);
-      if (idx >= 0) {
-        const next = [...bills];
-        next[idx] = bill;
-        return next;
-      }
-      return [...bills, { ...bill, id: generateId() }];
-    });
-  }, [updateBills]);
+    const updated = { ...bill, isPaid: !bill.isPaid };
+    const bills   = updated.isPaid
+      ? [...month.bills.filter(b => b.id !== id), updated]
+      : month.bills.map(b => b.id === id ? updated : b);
 
-  const deleteBill = useCallback((id: string) => {
-    updateBills(bills => bills.filter(b => b.id !== id));
-  }, [updateBills]);
+    setState(s => ({ ...s, months: { ...s.months, [currentMonth]: { ...month, bills } } }));
+    await supabase.from('bills').update({ is_paid: updated.isPaid }).eq('id', id);
+    if (updated.isPaid) {
+      await Promise.all(bills.map((b, i) => supabase.from('bills').update({ sort_order: i }).eq('id', b.id)));
+    }
+  }, [userId, currentMonth, state.months]);
+
+  const reorderBills = useCallback(async (activeId: string, overId: string) => {
+    if (!userId) return;
+    const month = state.months[currentMonth];
+    if (!month) return;
+
+    const bills = [...month.bills];
+    const from  = bills.findIndex(b => b.id === activeId);
+    const to    = bills.findIndex(b => b.id === overId);
+    if (from === -1 || to === -1 || from === to) return;
+    const [moved] = bills.splice(from, 1);
+    bills.splice(to, 0, moved!);
+
+    setState(s => ({ ...s, months: { ...s.months, [currentMonth]: { ...month, bills } } }));
+    await Promise.all(bills.map((b, i) => supabase.from('bills').update({ sort_order: i }).eq('id', b.id)));
+  }, [userId, currentMonth, state.months]);
 
   // ── Incomes ───────────────────────────────────────────────────────────────
 
-  const updateIncomes = useCallback((updater: (incomes: Income[]) => Income[]) => {
-    setState(prev => ({
-      ...prev,
-      months: {
-        ...prev.months,
-        [currentMonth]: {
-          ...prev.months[currentMonth]!,
-          incomes: updater(prev.months[currentMonth]?.incomes ?? []),
-        },
-      },
-    }));
-  }, [currentMonth]);
+  const saveIncome = useCallback(async (income: Income) => {
+    if (!userId) return;
+    const prev    = state.months[currentMonth] ?? { bills: [], incomes: [] };
+    const exists  = prev.incomes.some(i => i.id === income.id);
+    const incomes = exists ? prev.incomes.map(i => i.id === income.id ? income : i) : [...prev.incomes, income];
+    setState(s => ({ ...s, months: { ...s.months, [currentMonth]: { ...prev, incomes } } }));
+    await supabase.from('incomes').upsert(toDbIncome(income, currentMonth, userId));
+  }, [userId, currentMonth, state.months]);
 
-  const saveIncome = useCallback((income: Income) => {
-    updateIncomes(incomes => {
-      const idx = incomes.findIndex(i => i.id === income.id);
-      if (idx >= 0) {
-        const next = [...incomes];
-        next[idx] = income;
-        return next;
-      }
-      return [...incomes, { ...income, id: generateId() }];
+  const deleteIncome = useCallback(async (id: string) => {
+    if (!userId) return;
+    setState(s => {
+      const month = s.months[currentMonth];
+      if (!month) return s;
+      return { ...s, months: { ...s.months, [currentMonth]: { ...month, incomes: month.incomes.filter(i => i.id !== id) } } };
     });
-  }, [updateIncomes]);
-
-  const deleteIncome = useCallback((id: string) => {
-    updateIncomes(incomes => incomes.filter(i => i.id !== id));
-  }, [updateIncomes]);
+    await supabase.from('incomes').delete().eq('id', id);
+  }, [userId, currentMonth]);
 
   // ── Tags ──────────────────────────────────────────────────────────────────
 
-  const saveTag = useCallback((tag: Tag) => {
-    setState(prev => {
-      const idx = prev.tags.findIndex(t => t.id === tag.id);
-      const tags = idx >= 0
-        ? prev.tags.map((t, i) => i === idx ? tag : t)
-        : [...prev.tags, { ...tag, id: generateId() }];
-      return { ...prev, tags };
+  const saveTag = useCallback(async (tag: Tag) => {
+    if (!userId) return;
+    setState(s => {
+      const exists = s.tags.some(t => t.id === tag.id);
+      return { ...s, tags: exists ? s.tags.map(t => t.id === tag.id ? tag : t) : [...s.tags, tag] };
     });
-  }, []);
+    await supabase.from('tags').upsert(toDbTag(tag, userId));
+  }, [userId]);
 
-  const deleteTag = useCallback((id: string) => {
-    setState(prev => {
-      const tags = prev.tags.filter(t => t.id !== id);
-      const months: AppState['months'] = {};
-      for (const [k, v] of Object.entries(prev.months)) {
-        months[k] = {
-          ...v,
-          bills: v.bills.map(b => ({
-            ...b,
-            tagIds: b.tagIds.filter(tid => tid !== id),
-          })),
-        };
+  const deleteTag = useCallback(async (id: string) => {
+    if (!userId) return;
+
+    // Collect bills that reference this tag (across all months)
+    const affectedBills: { id: string; tagIds: string[] }[] = [];
+    for (const md of Object.values(state.months)) {
+      for (const b of md.bills) {
+        if (b.tagIds.includes(id)) affectedBills.push({ id: b.id, tagIds: b.tagIds.filter(t => t !== id) });
       }
-      return { ...prev, tags, months };
+    }
+
+    setState(s => {
+      const tags   = s.tags.filter(t => t.id !== id);
+      const months: AppState['months'] = {};
+      for (const [k, v] of Object.entries(s.months)) {
+        months[k] = { ...v, bills: v.bills.map(b => ({ ...b, tagIds: b.tagIds.filter(tid => tid !== id) })) };
+      }
+      return { ...s, tags, months };
     });
-  }, []);
+
+    await Promise.all([
+      supabase.from('tags').delete().eq('id', id),
+      ...affectedBills.map(b => supabase.from('bills').update({ tag_ids: b.tagIds }).eq('id', b.id)),
+    ]);
+  }, [userId, state.months]);
 
   return {
-    state,
-    currentMonth,
-    monthData,
-    navigate,
-    navigateTo,
-    togglePaid,
-    reorderBills,
-    saveBill,
-    deleteBill,
-    saveIncome,
-    deleteIncome,
-    saveTag,
-    deleteTag,
+    state, currentMonth, monthData, isLoading,
+    navigate, navigateTo,
+    togglePaid, reorderBills,
+    saveBill, deleteBill,
+    saveIncome, deleteIncome,
+    saveTag, deleteTag,
   };
 }

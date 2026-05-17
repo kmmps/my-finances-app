@@ -17,21 +17,21 @@ import type { AttachTab, Bill, FilterType, ModalType } from './types';
 
 export default function App() {
   // ── Auth ────────────────────────────────────────────────────────────────────
-  const { authState, error, lockoutRemaining, setupPassword, login, changePassword, logout } = useAuth();
+  const { authState, user, error, signUp, login, sendPasswordReset, updatePassword, logout } = useAuth();
 
   // ── Finances ─────────────────────────────────────────────────────────────────
   const {
-    state, currentMonth, monthData,
+    state, currentMonth, monthData, isLoading,
     navigate, navigateTo,
     togglePaid, reorderBills,
     saveBill, deleteBill,
     saveIncome, deleteIncome,
     saveTag, deleteTag,
-  } = useFinances();
+  } = useFinances(user?.id);
 
-  const [filter,      setFilter]      = useState<FilterType>('all');
-  const [modal,       setModal]       = useState<ModalType>({ kind: 'none' });
-  const [showPicker,  setShowPicker]  = useState(false);
+  const [filter,     setFilter]     = useState<FilterType>('all');
+  const [modal,      setModal]      = useState<ModalType>({ kind: 'none' });
+  const [showPicker, setShowPicker] = useState(false);
 
   const { bills, incomes } = monthData;
 
@@ -56,7 +56,7 @@ export default function App() {
   const handleOpenAttach = (bill: Bill, tab: AttachTab) => setModal({ kind: 'attachments', bill, tab });
 
   const handleAttachmentUpdate = (bill: Bill) => {
-    saveBill(bill);
+    void saveBill(bill);
     setModal(prev => prev.kind === 'attachments' ? { ...prev, bill } : prev);
   };
 
@@ -66,12 +66,25 @@ export default function App() {
   if (authState !== 'authenticated') {
     return (
       <LoginScreen
-        mode={authState}
+        isRecovery={authState === 'recovery'}
         error={error}
-        lockoutRemaining={lockoutRemaining}
-        onSetup={setupPassword}
+        onSignUp={signUp}
         onLogin={login}
+        onForgotPassword={sendPasswordReset}
+        onUpdatePassword={updatePassword}
       />
+    );
+  }
+
+  // ── Loading data ──────────────────────────────────────────────────────────────
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gray-950 flex items-center justify-center">
+        <div className="text-center space-y-3">
+          <div className="w-6 h-6 border-2 border-gray-700 border-t-emerald-500 rounded-full animate-spin mx-auto" />
+          <p className="text-xs text-gray-600">Carregando dados...</p>
+        </div>
+      </div>
     );
   }
 
@@ -126,8 +139,8 @@ export default function App() {
         <BillModal
           bill={modal.bill}
           tags={state.tags}
-          onSave={saveBill}
-          onDelete={deleteBill}
+          onSave={bill => void saveBill(bill)}
+          onDelete={id => void deleteBill(id)}
           onClose={() => setModal({ kind: 'none' })}
         />
       )}
@@ -135,8 +148,8 @@ export default function App() {
       {modal.kind === 'income' && (
         <IncomeModal
           income={modal.income}
-          onSave={saveIncome}
-          onDelete={deleteIncome}
+          onSave={income => void saveIncome(income)}
+          onDelete={id => void deleteIncome(id)}
           onClose={() => setModal({ kind: 'none' })}
         />
       )}
@@ -145,15 +158,16 @@ export default function App() {
         <TagManager
           tags={state.tags}
           tagUsageCounts={tagUsageCounts}
-          onSave={saveTag}
-          onDelete={deleteTag}
+          onSave={tag => void saveTag(tag)}
+          onDelete={id => void deleteTag(id)}
           onClose={() => setModal({ kind: 'none' })}
         />
       )}
 
       {modal.kind === 'settings' && (
         <SettingsModal
-          onChangePassword={changePassword}
+          userEmail={user?.email ?? ''}
+          onUpdatePassword={updatePassword}
           onLogout={logout}
           onClose={() => setModal({ kind: 'none' })}
         />
