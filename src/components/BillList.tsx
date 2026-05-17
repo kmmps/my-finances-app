@@ -70,6 +70,7 @@ export default function BillList({ bills, tags, filter, onTogglePaid, onEdit, on
             {filtered.map(bill => (
               <SwipeableRow
                 key={bill.id}
+                id={bill.id}
                 onEdit={() => onEdit(bill)}
                 onDelete={() => onDelete(bill.id)}
               >

@@ -108,7 +108,7 @@ export default function App() {
         />
       )}
 
-      <main className="max-w-2xl mx-auto px-0 sm:px-4 py-4 space-y-4 pb-24">
+      <main className="max-w-2xl mx-auto px-4 py-4 space-y-4 pb-24">
         <Summary
           bills={bills}
           incomes={incomes}
