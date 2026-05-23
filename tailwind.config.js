@@ -8,6 +8,15 @@ export default {
           950: '#0a0a0f',
         },
       },
+      keyframes: {
+        slideup: {
+          from: { transform: 'translateY(100%)' },
+          to:   { transform: 'translateY(0)' },
+        },
+      },
+      animation: {
+        slideup: 'slideup 0.25s ease-out',
+      },
     },
   },
   plugins: [],

@@ -123,6 +123,7 @@ export default function App() {
           bills={bills}
           tags={state.tags}
           filter={filter}
+          currentMonth={currentMonth}
           onTogglePaid={togglePaid}
           onReorder={reorderBills}
           onEdit={bill => setModal({ kind: 'bill', bill })}
@@ -140,6 +141,7 @@ export default function App() {
         <BillModal
           bill={modal.bill}
           tags={state.tags}
+          currentMonth={currentMonth}
           onSave={bill => void saveBill(bill)}
           onDelete={id => void deleteBill(id)}
           onClose={() => setModal({ kind: 'none' })}

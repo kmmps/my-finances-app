@@ -8,27 +8,31 @@ import type { AttachTab, Bill, Tag } from '../types';
 interface Props {
   bill:          Bill;
   tags:          Tag[];
+  currentMonth:  string;
   onTogglePaid:  (id: string) => void;
   onOpenAttach:  (bill: Bill, tab: AttachTab) => void;
 }
 
-export default function BillItem({ bill, tags, onTogglePaid, onOpenAttach }: Props) {
+export default function BillItem({ bill, tags, currentMonth, onTogglePaid, onOpenAttach }: Props) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: bill.id });
 
   const style = { transform: CSS.Transform.toString(transform), transition };
 
-  const billTags      = tags.filter(t => bill.tagIds.includes(t.id));
-  const hasBoleto     = !!(bill.boleto.pixCode || bill.boleto.file);
+  const billTags       = tags.filter(t => bill.tagIds.includes(t.id));
+  const hasBoleto      = !!(bill.boleto.pixCode || bill.boleto.file);
   const hasComprovante = bill.comprovantes.length > 0;
+
+  const monthStr = currentMonth.split('-')[1] ?? '';
+  const dueDateDisplay = `${String(bill.dueDay).padStart(2, '0')}/${monthStr}`;
 
   return (
     <div
       ref={setNodeRef}
       style={style}
       className={[
-        'flex items-center gap-2 px-3 py-3 border-b border-gray-800/40 last:border-0',
-        isDragging ? 'bg-gray-800 shadow-xl opacity-80 z-10' : '',
-        bill.isPaid ? 'opacity-60' : '',
+        'flex items-center gap-2 px-3 py-3 border-b border-gray-800/40 last:border-0 select-none',
+        isDragging ? 'opacity-0' : '',
+        !isDragging && bill.isPaid ? 'opacity-60' : '',
       ].join(' ')}
     >
       {/* Drag handle */}
@@ -80,7 +84,7 @@ export default function BillItem({ bill, tags, onTogglePaid, onOpenAttach }: Pro
         </div>
 
         <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
-          <span className="text-[11px] text-gray-500">dia {bill.dueDay}</span>
+          <span className="text-[11px] text-gray-500">{dueDateDisplay}</span>
           {billTags.map(tag => <Badge key={tag.id} tag={tag} small />)}
           {bill.note && (
             <span className="text-[11px] text-gray-600 italic truncate max-w-[120px]">{bill.note}</span>

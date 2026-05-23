@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback } from 'react';
-import { Upload, Trash2, Download, FileText, Copy, Check, X, ScanLine, FileCheck2 } from 'lucide-react';
+import { Upload, Trash2, Download, FileText, Copy, Check, X, ScanLine, FileCheck2, ExternalLink, Save } from 'lucide-react';
 import Modal from '../ui/Modal';
 import type { Attachment, AttachTab, Bill } from '../../types';
 import { generateId, formatFileSize } from '../../utils';
@@ -29,6 +29,24 @@ function readFile(file: File): Promise<Attachment> {
   });
 }
 
+function openInNewTab(att: Attachment) {
+  const [header, base64] = att.data.split(',');
+  const mimeMatch = header?.match(/:(.*?);/);
+  const mime = mimeMatch?.[1] ?? att.mimeType;
+  const bytes = atob(base64!);
+  const arr = new Uint8Array(bytes.length);
+  for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
+  const blob = new Blob([arr], { type: mime });
+  const url = URL.createObjectURL(blob);
+  window.open(url, '_blank');
+  setTimeout(() => URL.revokeObjectURL(url), 30_000);
+}
+
+function downloadFile(att: Attachment) {
+  const a = document.createElement('a');
+  a.href = att.data; a.download = att.name; a.click();
+}
+
 function UploadZone({ onFiles, label }: { onFiles: (files: FileList) => void; label?: string }) {
   const ref = useRef<HTMLInputElement>(null);
   return (
@@ -50,10 +68,9 @@ function UploadZone({ onFiles, label }: { onFiles: (files: FileList) => void; la
   );
 }
 
-function AttachmentRow({ att, onDelete, onDownload }: {
+function AttachmentRow({ att, onDelete }: {
   att: Attachment;
   onDelete: () => void;
-  onDownload: () => void;
 }) {
   const isImage = att.mimeType.startsWith('image/');
   return (
@@ -72,7 +89,18 @@ function AttachmentRow({ att, onDelete, onDownload }: {
         <p className="text-xs text-gray-500">{formatFileSize(att.size)}</p>
       </div>
       <div className="flex gap-1 shrink-0">
-        <button onClick={onDownload} className="p-1.5 rounded-lg text-gray-500 hover:text-blue-400 hover:bg-blue-400/10 transition-colors" title="Baixar">
+        <button
+          onClick={() => openInNewTab(att)}
+          className="p-1.5 rounded-lg text-gray-500 hover:text-emerald-400 hover:bg-emerald-400/10 transition-colors"
+          title="Visualizar"
+        >
+          <ExternalLink size={14} />
+        </button>
+        <button
+          onClick={() => downloadFile(att)}
+          className="p-1.5 rounded-lg text-gray-500 hover:text-blue-400 hover:bg-blue-400/10 transition-colors"
+          title="Baixar"
+        >
           <Download size={14} />
         </button>
         <button onClick={onDelete} className="p-1.5 rounded-lg text-gray-500 hover:text-red-400 hover:bg-red-400/10 transition-colors" title="Remover">
@@ -87,21 +115,18 @@ export default function AttachmentModal({ bill, initialTab, onUpdate, onClose }:
   const [activeTab, setActiveTab] = useState<AttachTab>(initialTab);
   const [pixCode, setPixCode] = useState(bill.boleto.pixCode);
   const [copied, setCopied] = useState(false);
+  // Local buffer — only persisted when user clicks Salvar
+  const [localBoleto, setLocalBoleto] = useState(bill.boleto);
+  const [localCompros, setLocalCompros] = useState(bill.comprovantes);
 
-  const update = useCallback((partial: Partial<Bill>) => {
-    onUpdate({ ...bill, ...partial });
-  }, [bill, onUpdate]);
-
-  const handlePixBlur = () => {
-    if (pixCode !== bill.boleto.pixCode) {
-      update({ boleto: { ...bill.boleto, pixCode } });
-    }
-  };
-
-  const handlePixClear = () => {
-    setPixCode('');
-    update({ boleto: { ...bill.boleto, pixCode: '' } });
-  };
+  const handleSave = useCallback(() => {
+    onUpdate({
+      ...bill,
+      boleto: { ...localBoleto, pixCode },
+      comprovantes: localCompros,
+    });
+    onClose();
+  }, [bill, localBoleto, localCompros, pixCode, onUpdate, onClose]);
 
   const handleCopyPix = async () => {
     if (!pixCode) return;
@@ -113,13 +138,12 @@ export default function AttachmentModal({ bill, initialTab, onUpdate, onClose }:
   const handleBoletoFiles = async (files: FileList) => {
     try {
       const att = await readFile(files[0]!);
-      // Use local pixCode state so unsaved text isn't lost
-      update({ boleto: { pixCode, file: att } });
+      setLocalBoleto(prev => ({ ...prev, file: att }));
     } catch (e) { alert((e as Error).message); }
   };
 
   const handleBoletoDelete = () => {
-    update({ boleto: { pixCode, file: null } });
+    setLocalBoleto(prev => ({ ...prev, file: null }));
   };
 
   const handleComproFiles = async (files: FileList) => {
@@ -127,20 +151,15 @@ export default function AttachmentModal({ bill, initialTab, onUpdate, onClose }:
     for (const f of Array.from(files)) {
       try { added.push(await readFile(f)); } catch (e) { alert((e as Error).message); }
     }
-    if (added.length) update({ comprovantes: [...bill.comprovantes, ...added] });
+    if (added.length) setLocalCompros(prev => [...prev, ...added]);
   };
 
   const handleComproDelete = (id: string) => {
-    update({ comprovantes: bill.comprovantes.filter(a => a.id !== id) });
+    setLocalCompros(prev => prev.filter(a => a.id !== id));
   };
 
-  const download = (att: Attachment) => {
-    const a = document.createElement('a');
-    a.href = att.data; a.download = att.name; a.click();
-  };
-
-  const hasBoleto = !!(bill.boleto.pixCode || bill.boleto.file);
-  const hasCompro = bill.comprovantes.length > 0;
+  const hasBoleto = !!(pixCode || localBoleto.file);
+  const hasCompro = localCompros.length > 0;
 
   const Tab = ({ id, label, icon, active }: { id: AttachTab; label: string; icon: React.ReactNode; active: boolean }) => (
     <button
@@ -155,7 +174,18 @@ export default function AttachmentModal({ bill, initialTab, onUpdate, onClose }:
   );
 
   return (
-    <Modal title={`Anexos — ${bill.name}`} onClose={onClose}>
+    <Modal
+      title={`Anexos — ${bill.name}`}
+      onClose={onClose}
+      footer={
+        <button
+          onClick={handleSave}
+          className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm bg-emerald-500 text-white font-medium hover:bg-emerald-400 transition-colors"
+        >
+          <Save size={14} /> Salvar
+        </button>
+      }
+    >
       {/* Tabs */}
       <div className="flex gap-1 bg-gray-800/60 rounded-xl p-1 mb-4">
         <Tab
@@ -182,10 +212,9 @@ export default function AttachmentModal({ bill, initialTab, onUpdate, onClose }:
         />
       </div>
 
-      {/* ── Boleto/Pix tab ─────────────────────────────────────── */}
+      {/* ── Boleto/Pix tab ─────────────────────────────────────────────── */}
       {activeTab === 'boleto' && (
         <div className="space-y-4">
-          {/* Pix code */}
           <div>
             <div className="flex items-center justify-between mb-1.5">
               <label className="text-xs font-medium text-gray-400">Código Pix (copia e cola)</label>
@@ -200,7 +229,7 @@ export default function AttachmentModal({ bill, initialTab, onUpdate, onClose }:
                       {copied ? 'Copiado!' : 'Copiar'}
                     </button>
                     <button
-                      onClick={handlePixClear}
+                      onClick={() => setPixCode('')}
                       className="flex items-center gap-1 text-[10px] px-2 py-1 rounded-lg bg-gray-700 text-gray-400 hover:bg-gray-600 transition-colors"
                     >
                       <X size={10} /> Limpar
@@ -212,21 +241,18 @@ export default function AttachmentModal({ bill, initialTab, onUpdate, onClose }:
             <textarea
               value={pixCode}
               onChange={e => setPixCode(e.target.value)}
-              onBlur={handlePixBlur}
               placeholder="Cole o código Pix aqui..."
               rows={4}
               className="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2.5 text-xs text-gray-100 placeholder-gray-600 focus:outline-none focus:border-blue-500 transition-colors resize-none font-mono leading-relaxed"
             />
           </div>
 
-          {/* Boleto file */}
           <div>
             <label className="block text-xs font-medium text-gray-400 mb-1.5">Arquivo (PDF ou imagem)</label>
-            {bill.boleto.file ? (
+            {localBoleto.file ? (
               <AttachmentRow
-                att={bill.boleto.file}
+                att={localBoleto.file}
                 onDelete={handleBoletoDelete}
-                onDownload={() => download(bill.boleto.file!)}
               />
             ) : (
               <UploadZone onFiles={handleBoletoFiles} label="Adicionar boleto (substitui anterior)" />
@@ -235,40 +261,45 @@ export default function AttachmentModal({ bill, initialTab, onUpdate, onClose }:
         </div>
       )}
 
-      {/* ── Comprovante tab ────────────────────────────────────── */}
+      {/* ── Comprovante tab ────────────────────────────────────────────── */}
       {activeTab === 'comprovante' && (
         <div className="space-y-3">
           <UploadZone onFiles={handleComproFiles} label="Adicionar comprovante(s)" />
 
-          {bill.comprovantes.length === 0 ? (
+          {localCompros.length === 0 ? (
             <div className="text-center py-4">
               <FileCheck2 size={28} className="mx-auto text-gray-700 mb-2" />
               <p className="text-sm text-gray-600">Nenhum comprovante ainda</p>
             </div>
           ) : (
             <div className="space-y-2">
-              {bill.comprovantes.map(att => (
+              {localCompros.map(att => (
                 <AttachmentRow
                   key={att.id}
                   att={att}
                   onDelete={() => handleComproDelete(att.id)}
-                  onDownload={() => download(att)}
                 />
               ))}
             </div>
           )}
 
-          {/* Image grid preview */}
-          {bill.comprovantes.some(a => a.mimeType.startsWith('image/')) && (
+          {localCompros.some(a => a.mimeType.startsWith('image/')) && (
             <div className="grid grid-cols-2 gap-2 pt-1">
-              {bill.comprovantes
+              {localCompros
                 .filter(a => a.mimeType.startsWith('image/'))
                 .map(att => (
-                  <div key={att.id} className="relative rounded-xl overflow-hidden aspect-video bg-gray-800">
+                  <button
+                    key={att.id}
+                    onClick={() => openInNewTab(att)}
+                    className="relative rounded-xl overflow-hidden aspect-video bg-gray-800 group"
+                  >
                     <img src={att.data} alt={att.name} className="w-full h-full object-cover" />
                     <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
+                    <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/30">
+                      <ExternalLink size={20} className="text-white" />
+                    </div>
                     <p className="absolute bottom-1.5 left-2 right-2 text-[10px] text-white truncate">{att.name}</p>
-                  </div>
+                  </button>
                 ))}
             </div>
           )}

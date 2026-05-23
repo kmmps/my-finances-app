@@ -1,5 +1,6 @@
 import { useRef, useState, useEffect, useCallback } from 'react';
 import { Pencil, Trash2 } from 'lucide-react';
+import ConfirmModal from './modals/ConfirmModal';
 
 const REVEAL     = 76;
 const THRESHOLD  = 60;
@@ -7,14 +8,16 @@ const OPEN_EVENT = 'swiperow-open';
 
 interface Props {
   id:       string;
+  label?:   string; // item name shown in confirm dialog
   onEdit:   () => void;
   onDelete: () => void;
   children: React.ReactNode;
 }
 
-export default function SwipeableRow({ id, onEdit, onDelete, children }: Props) {
-  const [offset,   setOffset]   = useState(0);
-  const [snapping, setSnapping] = useState(false);
+export default function SwipeableRow({ id, label, onEdit, onDelete, children }: Props) {
+  const [offset,      setOffset]      = useState(0);
+  const [snapping,    setSnapping]    = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const contentRef   = useRef<HTMLDivElement>(null);
@@ -163,59 +166,69 @@ export default function SwipeableRow({ id, onEdit, onDelete, children }: Props) 
     setTimeout(() => onEdit(), 180);
   };
 
-  const handleDelete = () => {
+  const handleDeleteClick = () => {
     snapTo(0);
-    setTimeout(() => { if (window.confirm('Excluir esta conta?')) onDelete(); }, 180);
+    setTimeout(() => setShowConfirm(true), 180);
+  };
+
+  const handleDeleteConfirmed = () => {
+    setShowConfirm(false);
+    onDelete();
   };
 
   return (
-    <div ref={containerRef} className="relative overflow-hidden">
+    <>
+      <div ref={containerRef} className="relative overflow-hidden select-none">
 
-      {/* Edit — absolute left, hidden behind content in default state */}
-      <div
-        className="absolute inset-y-0 left-0 flex items-center justify-center bg-blue-600"
-        style={{ width: REVEAL }}
-      >
-        <button
-          onClick={handleEdit}
-          tabIndex={offset > 0 ? 0 : -1}
-          aria-label="Editar conta"
-          className="flex flex-col items-center justify-center gap-1 text-white w-full h-full select-none active:bg-blue-500 transition-colors"
+        {/* Edit — absolute left */}
+        <div
+          className="absolute inset-y-0 left-0 flex items-center justify-center bg-blue-600"
+          style={{ width: REVEAL }}
         >
-          <Pencil size={18} />
-          <span className="text-[10px] font-semibold">Editar</span>
-        </button>
-      </div>
+          <button
+            onClick={handleEdit}
+            tabIndex={offset > 0 ? 0 : -1}
+            aria-label="Editar"
+            className="flex flex-col items-center justify-center gap-1 text-white w-full h-full select-none active:bg-blue-500 transition-colors"
+          >
+            <Pencil size={18} />
+            <span className="text-[10px] font-semibold">Editar</span>
+          </button>
+        </div>
 
-      {/* Delete — absolute right, hidden behind content in default state */}
-      <div
-        className="absolute inset-y-0 right-0 flex items-center justify-center bg-red-600"
-        style={{ width: REVEAL }}
-      >
-        <button
-          onClick={handleDelete}
-          tabIndex={offset < 0 ? 0 : -1}
-          aria-label="Excluir conta"
-          className="flex flex-col items-center justify-center gap-1 text-white w-full h-full select-none active:bg-red-500 transition-colors"
+        {/* Delete — absolute right */}
+        <div
+          className="absolute inset-y-0 right-0 flex items-center justify-center bg-red-600"
+          style={{ width: REVEAL }}
         >
-          <Trash2 size={18} />
-          <span className="text-[10px] font-semibold">Excluir</span>
-        </button>
+          <button
+            onClick={handleDeleteClick}
+            tabIndex={offset < 0 ? 0 : -1}
+            aria-label="Excluir"
+            className="flex flex-col items-center justify-center gap-1 text-white w-full h-full select-none active:bg-red-500 transition-colors"
+          >
+            <Trash2 size={18} />
+            <span className="text-[10px] font-semibold">Excluir</span>
+          </button>
+        </div>
+
+        <div
+          ref={contentRef}
+          className={`relative bg-gray-900${snapping ? ' transition-transform duration-200 ease-out' : ''}`}
+          style={{ transform: `translateX(${offset}px)` }}
+        >
+          {children}
+        </div>
       </div>
 
-      {/*
-        Content — MUST be `relative` so CSS stacking puts it above the absolute
-        buttons (positioned elements paint in DOM order; without `relative` this
-        div is a plain block and paints before the absolute buttons, making them
-        always visible on top).
-      */}
-      <div
-        ref={contentRef}
-        className={`relative bg-gray-900${snapping ? ' transition-transform duration-200 ease-out' : ''}`}
-        style={{ transform: `translateX(${offset}px)` }}
-      >
-        {children}
-      </div>
-    </div>
+      {showConfirm && (
+        <ConfirmModal
+          title="Excluir"
+          message={label ? `Tem certeza que deseja excluir "${label}"?` : 'Tem certeza que deseja excluir este item?'}
+          onConfirm={handleDeleteConfirmed}
+          onCancel={() => setShowConfirm(false)}
+        />
+      )}
+    </>
   );
 }

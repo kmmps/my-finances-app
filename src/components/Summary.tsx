@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import {
   TrendingUp, TrendingDown, Wallet,
-  ChevronDown, ChevronUp,
-  Pencil, Trash2, Plus,
+  ChevronDown, ChevronUp, Plus,
 } from 'lucide-react';
 import { formatCurrency } from '../utils';
+import SwipeableRow from './SwipeableRow';
 import type { Bill, Income } from '../types';
 
 interface Props {
@@ -28,12 +28,6 @@ export default function Summary({ bills, incomes, onAddIncome, onEditIncome, onD
 
   return (
     <div className="space-y-3">
-      {/*
-        Mobile:  2-col grid  → Receita ocupa col-span-2 (linha 1 inteira)
-                               Gastos + Saldo lado a lado (linha 2)
-        Desktop: 3-col grid  → Receita, Gastos, Saldo lado a lado (igual ao pedido)
-        items-start: evita que Gastos/Saldo se estiquem quando Receita expande
-      */}
       <div className="grid grid-cols-2 gap-2 items-start">
 
         {/* ── RECEITA (collapsible) ──────────────────────────────────── */}
@@ -41,7 +35,7 @@ export default function Summary({ bills, incomes, onAddIncome, onEditIncome, onD
           {/* Header — sempre visível */}
           <button
             onClick={() => setOpen(v => !v)}
-            className="w-full flex items-center justify-between p-3 hover:bg-gray-800/30 transition-colors"
+            className="w-full flex items-center justify-between p-3 hover:bg-gray-800/30 transition-colors select-none"
           >
             <div className="flex items-center gap-1.5 flex-1 min-w-0">
               <TrendingUp size={13} className="text-emerald-400 shrink-0" />
@@ -61,44 +55,31 @@ export default function Summary({ bills, incomes, onAddIncome, onEditIncome, onD
           {open && (
             <div className="border-t border-gray-800">
               {incomes.map(income => (
-                <div
+                <SwipeableRow
                   key={income.id}
-                  className="flex items-center justify-between px-3 py-2 group hover:bg-gray-800/30 transition-colors"
+                  id={income.id}
+                  label={income.name}
+                  onEdit={() => onEditIncome(income)}
+                  onDelete={() => onDeleteIncome(income.id)}
                 >
-                  <div className="flex items-center gap-2 min-w-0">
-                    <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-                      income.type === 'base' ? 'bg-emerald-400' : 'bg-blue-400'
-                    }`} />
-                    <span className="text-xs text-gray-300 truncate">{income.name}</span>
-                  </div>
-                  <div className="flex items-center gap-1 shrink-0 ml-2">
-                    <span className="text-xs font-semibold text-gray-100 tabular-nums">
+                  <div className="flex items-center justify-between px-3 py-2.5">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                        income.type === 'base' ? 'bg-emerald-400' : 'bg-blue-400'
+                      }`} />
+                      <span className="text-xs text-gray-300 truncate">{income.name}</span>
+                    </div>
+                    <span className="text-xs font-semibold text-gray-100 tabular-nums ml-2 shrink-0">
                       {formatCurrency(income.amount)}
                     </span>
-                    <div className="flex opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button
-                        onClick={() => onEditIncome(income)}
-                        className="p-1 rounded text-gray-600 hover:text-blue-400 hover:bg-blue-400/10 transition-colors"
-                        title="Editar"
-                      >
-                        <Pencil size={11} />
-                      </button>
-                      <button
-                        onClick={() => onDeleteIncome(income.id)}
-                        className="p-1 rounded text-gray-600 hover:text-red-400 hover:bg-red-400/10 transition-colors"
-                        title="Remover"
-                      >
-                        <Trash2 size={11} />
-                      </button>
-                    </div>
                   </div>
-                </div>
+                </SwipeableRow>
               ))}
 
               <div className="px-3 py-2 border-t border-gray-800/60">
                 <button
                   onClick={onAddIncome}
-                  className="flex items-center gap-1 text-[11px] text-gray-500 hover:text-emerald-400 transition-colors"
+                  className="flex items-center gap-1 text-[11px] text-gray-500 hover:text-emerald-400 transition-colors select-none"
                 >
                   <Plus size={12} /> Adicionar renda
                 </button>
