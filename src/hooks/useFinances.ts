@@ -212,15 +212,17 @@ export function useFinances(userId: string | undefined) {
 
         // 3. Busca dados do Supabase com timeout de 5s
         console.log('[finances] buscando dados do Supabase...');
+        let timeoutId: ReturnType<typeof setTimeout> | undefined;
         const fresh = await Promise.race<AppState | null>([
           loadFromSupabase(),
-          new Promise<null>(resolve =>
-            setTimeout(() => {
+          new Promise<null>(resolve => {
+            timeoutId = setTimeout(() => {
               console.warn(`[finances] timeout: Supabase não respondeu em ${LOAD_TIMEOUT_MS}ms`);
               resolve(null);
-            }, LOAD_TIMEOUT_MS)
-          ),
+            }, LOAD_TIMEOUT_MS);
+          }),
         ]);
+        clearTimeout(timeoutId);
 
         if (fresh) {
           console.log('[finances] dados do Supabase carregados com sucesso');
