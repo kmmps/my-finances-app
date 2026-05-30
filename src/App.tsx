@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
+import { Toaster } from 'sonner';
 import { useFinances } from './hooks/useFinances';
 import { useAuth } from './hooks/useAuth';
 import Header from './components/Header';
@@ -228,6 +229,7 @@ export default function App() {
           onClose={() => setModal({ kind: 'none' })}
         />
       )}
+      <Toaster position="bottom-center" theme="dark" richColors />
     </div>
   );
 }

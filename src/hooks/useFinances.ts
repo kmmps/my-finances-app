@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { toast } from 'sonner';
 import { supabase } from '../lib/supabase';
 import type { AppState, Bill, Income, Tag, MonthData, TagColor } from '../types';
 import { DEFAULT_BILLS, DEFAULT_INCOMES, DEFAULT_TAGS } from '../data/defaults';
@@ -337,21 +338,23 @@ export function useFinances(userId: string | undefined) {
 
   const saveBill = useCallback(async (bill: Bill) => {
     if (!userId) return;
-    const prev  = state.months[currentMonth] ?? { bills: [], incomes: [] };
-    const idx   = prev.bills.findIndex(b => b.id === bill.id);
+    const prev = state.months[currentMonth] ?? { bills: [], incomes: [] };
+    const idx  = prev.bills.findIndex(b => b.id === bill.id);
+    const { error } = await supabase.from('bills').upsert(toDbBill(bill, currentMonth, idx < 0 ? prev.bills.length : idx, userId));
+    if (error) { toast.error('Erro ao salvar conta. Tente novamente.'); return; }
     const bills = idx >= 0 ? prev.bills.map(b => b.id === bill.id ? bill : b) : [...prev.bills, bill];
     setState(s => ({ ...s, months: { ...s.months, [currentMonth]: { ...prev, bills } } }));
-    await supabase.from('bills').upsert(toDbBill(bill, currentMonth, idx < 0 ? prev.bills.length : idx, userId));
   }, [userId, currentMonth, state.months]);
 
   const deleteBill = useCallback(async (id: string) => {
     if (!userId) return;
+    const { error } = await supabase.from('bills').delete().eq('id', id);
+    if (error) { toast.error('Erro ao excluir conta. Tente novamente.'); return; }
     setState(s => {
       const month = s.months[currentMonth];
       if (!month) return s;
       return { ...s, months: { ...s.months, [currentMonth]: { ...month, bills: month.bills.filter(b => b.id !== id) } } };
     });
-    await supabase.from('bills').delete().eq('id', id);
   }, [userId, currentMonth]);
 
   const togglePaid = useCallback(async (id: string) => {
@@ -366,10 +369,19 @@ export function useFinances(userId: string | undefined) {
       ? [...month.bills.filter(b => b.id !== id), updated]
       : month.bills.map(b => b.id === id ? updated : b);
 
+    // Optimistic update for instant feedback
     setState(s => ({ ...s, months: { ...s.months, [currentMonth]: { ...month, bills } } }));
-    await supabase.from('bills').update({ is_paid: updated.isPaid }).eq('id', id);
+
+    const { error } = await supabase.from('bills').update({ is_paid: updated.isPaid }).eq('id', id);
+    if (error) {
+      toast.error('Erro ao atualizar status. Tente novamente.');
+      setState(s => ({ ...s, months: { ...s.months, [currentMonth]: { ...month, bills: month.bills } } }));
+      return;
+    }
     if (updated.isPaid) {
-      await Promise.all(bills.map((b, i) => supabase.from('bills').update({ sort_order: i }).eq('id', b.id)));
+      const results = await Promise.all(bills.map((b, i) => supabase.from('bills').update({ sort_order: i }).eq('id', b.id)));
+      const failed = results.find(r => r.error);
+      if (failed?.error) toast.error('Conta marcada como paga, mas a ordenação pode estar desatualizada.');
     }
   }, [userId, currentMonth, state.months]);
 
@@ -385,52 +397,68 @@ export function useFinances(userId: string | undefined) {
     const [moved] = bills.splice(from, 1);
     bills.splice(to, 0, moved!);
 
+    // Optimistic update for smooth drag-and-drop
     setState(s => ({ ...s, months: { ...s.months, [currentMonth]: { ...month, bills } } }));
-    await Promise.all(bills.map((b, i) => supabase.from('bills').update({ sort_order: i }).eq('id', b.id)));
+
+    const results = await Promise.all(bills.map((b, i) => supabase.from('bills').update({ sort_order: i }).eq('id', b.id)));
+    const failed = results.find(r => r.error);
+    if (failed?.error) {
+      toast.error('Erro ao salvar nova ordem. Recarregando...');
+      setState(s => ({ ...s, months: { ...s.months, [currentMonth]: { ...month, bills: month.bills } } }));
+    }
   }, [userId, currentMonth, state.months]);
 
   // ── Incomes ───────────────────────────────────────────────────────────────
 
   const saveIncome = useCallback(async (income: Income) => {
     if (!userId) return;
-    const prev    = state.months[currentMonth] ?? { bills: [], incomes: [] };
+    const prev = state.months[currentMonth] ?? { bills: [], incomes: [] };
+    const { error } = await supabase.from('incomes').upsert(toDbIncome(income, currentMonth, userId));
+    if (error) { toast.error('Erro ao salvar renda. Tente novamente.'); return; }
     const exists  = prev.incomes.some(i => i.id === income.id);
     const incomes = exists ? prev.incomes.map(i => i.id === income.id ? income : i) : [...prev.incomes, income];
     setState(s => ({ ...s, months: { ...s.months, [currentMonth]: { ...prev, incomes } } }));
-    await supabase.from('incomes').upsert(toDbIncome(income, currentMonth, userId));
   }, [userId, currentMonth, state.months]);
 
   const deleteIncome = useCallback(async (id: string) => {
     if (!userId) return;
+    const { error } = await supabase.from('incomes').delete().eq('id', id);
+    if (error) { toast.error('Erro ao excluir renda. Tente novamente.'); return; }
     setState(s => {
       const month = s.months[currentMonth];
       if (!month) return s;
       return { ...s, months: { ...s.months, [currentMonth]: { ...month, incomes: month.incomes.filter(i => i.id !== id) } } };
     });
-    await supabase.from('incomes').delete().eq('id', id);
   }, [userId, currentMonth]);
 
   // ── Tags ──────────────────────────────────────────────────────────────────
 
   const saveTag = useCallback(async (tag: Tag) => {
     if (!userId) return;
+    const { error } = await supabase.from('tags').upsert(toDbTag(tag, userId));
+    if (error) { toast.error('Erro ao salvar tag. Tente novamente.'); return; }
     setState(s => {
       const exists = s.tags.some(t => t.id === tag.id);
       return { ...s, tags: exists ? s.tags.map(t => t.id === tag.id ? tag : t) : [...s.tags, tag] };
     });
-    await supabase.from('tags').upsert(toDbTag(tag, userId));
   }, [userId]);
 
   const deleteTag = useCallback(async (id: string) => {
     if (!userId) return;
 
-    // Collect bills that reference this tag (across all months)
     const affectedBills: { id: string; tagIds: string[] }[] = [];
     for (const md of Object.values(state.months)) {
       for (const b of md.bills) {
         if (b.tagIds.includes(id)) affectedBills.push({ id: b.id, tagIds: b.tagIds.filter(t => t !== id) });
       }
     }
+
+    const results = await Promise.all([
+      supabase.from('tags').delete().eq('id', id),
+      ...affectedBills.map(b => supabase.from('bills').update({ tag_ids: b.tagIds }).eq('id', b.id)),
+    ]);
+    const failed = results.find(r => r.error);
+    if (failed?.error) { toast.error('Erro ao excluir tag. Tente novamente.'); return; }
 
     setState(s => {
       const tags   = s.tags.filter(t => t.id !== id);
@@ -440,11 +468,6 @@ export function useFinances(userId: string | undefined) {
       }
       return { ...s, tags, months };
     });
-
-    await Promise.all([
-      supabase.from('tags').delete().eq('id', id),
-      ...affectedBills.map(b => supabase.from('bills').update({ tag_ids: b.tagIds }).eq('id', b.id)),
-    ]);
   }, [userId, state.months]);
 
   return {
