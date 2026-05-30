@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useFinances } from './hooks/useFinances';
 import { useAuth } from './hooks/useAuth';
 import Header from './components/Header';
@@ -21,17 +21,26 @@ export default function App() {
 
   // ── Finances ─────────────────────────────────────────────────────────────────
   const {
-    state, currentMonth, monthData, isLoading,
+    state, currentMonth, monthData, isLoading, loadError,
     navigate, navigateTo,
     togglePaid, reorderBills,
     saveBill, deleteBill,
     saveIncome, deleteIncome,
     saveTag, deleteTag,
+    retry,
   } = useFinances(user?.id);
 
-  const [filter,     setFilter]     = useState<FilterType>('all');
-  const [modal,      setModal]      = useState<ModalType>({ kind: 'none' });
-  const [showPicker, setShowPicker] = useState(false);
+  const [filter,        setFilter]        = useState<FilterType>('all');
+  const [modal,         setModal]         = useState<ModalType>({ kind: 'none' });
+  const [showPicker,    setShowPicker]    = useState(false);
+  const [loadingTooLong, setLoadingTooLong] = useState(false);
+
+  // Mostra botão "Tentar novamente" se o loading durar mais de 5s
+  useEffect(() => {
+    if (!isLoading) { setLoadingTooLong(false); return; }
+    const t = setTimeout(() => setLoadingTooLong(true), 5000);
+    return () => clearTimeout(t);
+  }, [isLoading]);
 
   const { bills, incomes } = monthData;
 
@@ -80,9 +89,36 @@ export default function App() {
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gray-950 flex items-center justify-center">
-        <div className="text-center space-y-3">
+        <div className="text-center space-y-4">
           <div className="w-6 h-6 border-2 border-gray-700 border-t-emerald-500 rounded-full animate-spin mx-auto" />
           <p className="text-xs text-gray-600">Carregando dados...</p>
+          {loadingTooLong && (
+            <button
+              onClick={retry}
+              className="text-xs text-emerald-500 hover:text-emerald-400 underline underline-offset-2"
+            >
+              Tentar novamente
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ── Erro de conexão (sem dados locais) ────────────────────────────────────────
+  if (loadError && Object.keys(state.months).length === 0) {
+    return (
+      <div className="min-h-screen bg-gray-950 flex items-center justify-center px-6">
+        <div className="text-center space-y-4 max-w-xs">
+          <p className="text-2xl">⚠️</p>
+          <p className="text-sm text-gray-300">Não foi possível conectar ao servidor.</p>
+          <p className="text-xs text-gray-600">Verifique sua conexão e tente novamente.</p>
+          <button
+            onClick={retry}
+            className="mt-2 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-medium transition-colors"
+          >
+            Tentar novamente
+          </button>
         </div>
       </div>
     );
@@ -91,6 +127,14 @@ export default function App() {
   // ── App ───────────────────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-gray-950">
+      {loadError && (
+        <div className="bg-yellow-900/60 border-b border-yellow-700/50 px-4 py-2 flex items-center justify-between gap-3">
+          <p className="text-xs text-yellow-300">Modo offline — exibindo dados salvos localmente</p>
+          <button onClick={retry} className="text-xs text-yellow-200 underline underline-offset-2 shrink-0">
+            Reconectar
+          </button>
+        </div>
+      )}
       <Header
         currentMonth={currentMonth}
         onNavigate={navigate}

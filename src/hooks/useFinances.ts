@@ -159,12 +159,21 @@ async function runMigration(userId: string): Promise<void> {
 // ── Hook ──────────────────────────────────────────────────────────────────────
 
 const EMPTY: AppState = { tags: [], months: {} };
+const LOAD_TIMEOUT_MS = 5000;
 
 export function useFinances(userId: string | undefined) {
   const [state,        setState]       = useState<AppState>(EMPTY);
   const [currentMonth, setCurrentMonth] = useState(getCurrentMonthKey);
   const [isLoading,    setIsLoading]   = useState(true);
+  const [loadError,    setLoadError]   = useState(false);
+  const [retryCount,   setRetryCount]  = useState(0);
   const initRef = useRef(false);
+
+  const retry = useCallback(() => {
+    initRef.current = false;
+    setLoadError(false);
+    setRetryCount(c => c + 1);
+  }, []);
 
   // ── Load / reset on auth change ─────────────────────────────────────────
 
@@ -172,6 +181,7 @@ export function useFinances(userId: string | undefined) {
     if (!userId) {
       setState(EMPTY);
       setIsLoading(false);
+      setLoadError(false);
       initRef.current = false;
       return;
     }
@@ -179,24 +189,95 @@ export function useFinances(userId: string | undefined) {
     initRef.current = true;
 
     (async () => {
+      console.log('[finances] iniciando carregamento...');
       setIsLoading(true);
+      setLoadError(false);
 
-      // Show cached data instantly while fetching
+      // 1. Mostra dados do cache imediatamente
+      let hasCachedData = false;
       try {
         const raw = localStorage.getItem(STORAGE_KEY);
-        if (raw) setState(parseLocalState(JSON.parse(raw) as Record<string, unknown>));
-      } catch { /* ignore */ }
-
-      await runMigration(userId);
-
-      const fresh = await loadFromSupabase();
-      if (fresh) {
-        setState(fresh);
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(fresh));
+        if (raw) {
+          setState(parseLocalState(JSON.parse(raw) as Record<string, unknown>));
+          hasCachedData = true;
+          console.log('[finances] dados locais carregados do localStorage');
+        }
+      } catch (e) {
+        console.warn('[finances] erro ao ler localStorage:', e);
       }
-      setIsLoading(false);
+
+      try {
+        // 2. Migração única localStorage → Supabase
+        await runMigration(userId);
+
+        // 3. Busca dados do Supabase com timeout de 5s
+        console.log('[finances] buscando dados do Supabase...');
+        const fresh = await Promise.race<AppState | null>([
+          loadFromSupabase(),
+          new Promise<null>(resolve =>
+            setTimeout(() => {
+              console.warn(`[finances] timeout: Supabase não respondeu em ${LOAD_TIMEOUT_MS}ms`);
+              resolve(null);
+            }, LOAD_TIMEOUT_MS)
+          ),
+        ]);
+
+        if (fresh) {
+          console.log('[finances] dados do Supabase carregados com sucesso');
+
+          // 4. Primeiro login: banco vazio → insere dados padrão
+          if (Object.keys(fresh.months).length === 0 && fresh.tags.length === 0) {
+            console.log('[finances] primeiro login: inserindo contas e tags padrão...');
+            const monthKey   = getCurrentMonthKey();
+            const tags       = DEFAULT_TAGS.map(t => ({ ...t }));
+            const bills      = DEFAULT_BILLS.map(b => ({ ...b }));
+            const incomes    = DEFAULT_INCOMES.map(i => ({ ...i }));
+            const seeded: AppState = { tags, months: { [monthKey]: { bills, incomes } } };
+            setState(seeded);
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(seeded));
+            void Promise.all([
+              supabase.from('tags').upsert(tags.map(t => toDbTag(t, userId))),
+              supabase.from('bills').upsert(bills.map((b, i) => toDbBill(b, monthKey, i, userId))),
+              supabase.from('incomes').upsert(incomes.map(i => toDbIncome(i, monthKey, userId))),
+            ])
+              .then(() => console.log('[finances] dados padrão salvos no Supabase'))
+              .catch(e => console.error('[finances] erro ao salvar dados padrão:', e));
+          } else {
+            setState(fresh);
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(fresh));
+          }
+        } else {
+          // Supabase falhou ou timeout — usa localStorage como fallback
+          console.warn('[finances] Supabase indisponível, usando localStorage como fallback');
+          if (!hasCachedData) {
+            // Sem dados locais → carrega padrões offline
+            const monthKey = getCurrentMonthKey();
+            const offlineState: AppState = {
+              tags:   DEFAULT_TAGS.map(t => ({ ...t })),
+              months: { [monthKey]: { bills: DEFAULT_BILLS.map(b => ({ ...b })), incomes: DEFAULT_INCOMES.map(i => ({ ...i })) } },
+            };
+            setState(offlineState);
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(offlineState));
+            console.log('[finances] dados padrão offline carregados');
+          }
+          setLoadError(true);
+        }
+      } catch (e) {
+        console.error('[finances] erro inesperado no carregamento:', e);
+        if (!hasCachedData) {
+          const monthKey = getCurrentMonthKey();
+          setState({
+            tags:   DEFAULT_TAGS.map(t => ({ ...t })),
+            months: { [monthKey]: { bills: DEFAULT_BILLS.map(b => ({ ...b })), incomes: DEFAULT_INCOMES.map(i => ({ ...i })) } },
+          });
+        }
+        setLoadError(true);
+      } finally {
+        setIsLoading(false);
+        console.log('[finances] carregamento finalizado');
+      }
     })();
-  }, [userId]);
+  }, [userId, retryCount]);
 
   // Sync local cache whenever state changes (after initial load)
   useEffect(() => {
@@ -365,11 +446,12 @@ export function useFinances(userId: string | undefined) {
   }, [userId, state.months]);
 
   return {
-    state, currentMonth, monthData, isLoading,
+    state, currentMonth, monthData, isLoading, loadError,
     navigate, navigateTo,
     togglePaid, reorderBills,
     saveBill, deleteBill,
     saveIncome, deleteIncome,
     saveTag, deleteTag,
+    retry,
   };
 }
